@@ -25,6 +25,7 @@ data_type filter1(data_type input) {
 	delay_pipeline[0] = input;
 
 	// Compute convolution (dot product)
+	acc = 0.0; //reset accumulator
 	for (int i = 0; i < FILTER_LENGTH; i++)
 		acc += delay_pipeline[i] * coeffs[i];
 
