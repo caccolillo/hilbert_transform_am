@@ -131,36 +131,19 @@ data_type filter1(data_type input) {
 
 }
 
-
-data_type mean(data_type filter_in) {
-    const int WINDOW_SIZE = 4;  // Adjust window size as needed
-    static data_type buffer[WINDOW_SIZE] = {0};
-    static int index = 0;
-    static data_type sum = 0;
-    static int count = 0;
-    
-    // Subtract the oldest sample from sum
-    sum -= buffer[index];
-    
-    // Add new sample
-    buffer[index] = filter_in;
-    sum += filter_in;
-    
-    // Update circular buffer index
-    index = (index + 1) % WINDOW_SIZE;
-    
-    // Track how many samples we've seen (up to WINDOW_SIZE)
-    if (count < WINDOW_SIZE) {
-        count++;
-    }
-    
-    return sum / count;
+data_type mean(data_type x) {
+    static data_type y = 0;
+    const data_type alpha = 0.0001; // smaller alpha → slower, smoother DC estimate
+#pragma HLS INLINE off
+    y = y + alpha * (x - y);
+    return y;
 }
+
 
 
 data_type am_demodulator(data_type filter_in) {
 #pragma HLS INLINE off
-#pragma HLS PIPELINE II=1
+#pragma HLS DATAFLOW
 
 
 data_type delayed_signal = 0.0;
@@ -170,8 +153,10 @@ data_type filtered_envelope = 0.0;
 data_type downsampled_output = 0.0;
 data_type mean_val = 0.0;
 data_type final_output = 0.0;
-const data_type gain1  = 2.5E+00;
-const data_type gain2  = 2.5E+00;
+const data_type gain1  = 1.0E+00;
+const data_type gain2  = 1.0E+00;
+const data_type gain3  = 1.0E+00;
+
 
     filter_in = filter_in *  gain1 * gain2;
 
@@ -194,10 +179,12 @@ const data_type gain2  = 2.5E+00;
 
     // Step 6: Compute mean using your existing mean() function
     mean_val = mean(downsampled_output);
+    mean_val = mean_val * gain3;
 
     // Step 7: Subtract mean from downsampled output
     final_output = downsampled_output - mean_val;
 
     return final_output;
+    //return mean_val;
 }
 

@@ -38,7 +38,7 @@
 #endif
 
 // Test parameters
-const int NUM_SAMPLES = 4000;
+const int NUM_SAMPLES = 180000;
 const float SAMPLE_RATE = 480000.0;  // 480 kHz sampling rate
 const float CARRIER_FREQ = 100000.0;  // 100 kHz carrier
 const float MESSAGE_FREQ = 1000.0;    // 1 kHz message signal
@@ -90,7 +90,8 @@ int main() {
         data_type output_sample = am_demodulator(input_sample);
         
         // Convert back to float for analysis
-        float output_float = output_sample.to_float();
+        //float output_float = output_sample.to_float();
+        float output_float = output_sample;
         
         // Write to files
         input_file << i << " " << am_signal << std::endl;

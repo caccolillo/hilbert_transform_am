@@ -8,8 +8,9 @@
 const int DataWordSize = 40;
 const int DataIntSize = 16;
 const float DataMaxVal = pow(2.0, DataIntSize-1);
-typedef ap_fixed<DataWordSize, DataIntSize, AP_RND, AP_SAT, 0> data_type;
+//typedef ap_fixed<DataWordSize, DataIntSize, AP_RND, AP_SAT, 0> data_type;
 
+typedef float data_type;
 
 
 
@@ -18,10 +19,15 @@ typedef ap_fixed<DataWordSize, DataIntSize, AP_RND, AP_SAT, 0> data_type;
 //coefficient constants and data types
 const int CoeffWordSize = 18;
 const int CoeffIntSize = 4;
-typedef ap_fixed<CoeffWordSize, CoeffIntSize, AP_RND, AP_SAT, 0> coeff_type;
+//typedef ap_fixed<CoeffWordSize, CoeffIntSize, AP_RND, AP_SAT, 0> coeff_type;
+
+typedef float coeff_type;
+
 
 //Accumulator data types
-typedef ap_fixed<DataWordSize+CoeffWordSize+20, DataIntSize+CoeffIntSize, AP_TRN, AP_WRAP, 0> accum_type;
+//typedef ap_fixed<DataWordSize+CoeffWordSize+20, DataIntSize+CoeffIntSize, AP_TRN, AP_WRAP, 0> accum_type;
+typedef float accum_type;
+
 
 const coeff_type scaleconst1 = 1.0980991655570851E-03;
 const coeff_type coeff_b1_section1 = 1.0000000000000000E+00;
