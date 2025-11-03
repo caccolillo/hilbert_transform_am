@@ -32,10 +32,13 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <vector>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+#define INITIAL_DELAY 436
 
 // Test parameters
 const int NUM_SAMPLES = 180000;
@@ -54,6 +57,10 @@ int main() {
     std::cout << "Modulation Index: " << MODULATION_INDEX << std::endl;
     std::cout << "Number of Samples: " << NUM_SAMPLES << std::endl;
     std::cout << "========================================" << std::endl;
+
+    // Buffer to store output samples
+    std::vector<float> output_buffer;
+    output_buffer.reserve(NUM_SAMPLES);
 
     // Open output files for analysis
     std::ofstream input_file("am_input.dat");
@@ -90,12 +97,14 @@ int main() {
         data_type output_sample = am_demodulator(input_sample);
         
         // Convert back to float for analysis
-        //float output_float = output_sample.to_float();
-        float output_float = output_sample;
+        float output_float = output_sample.to_float();
+        //float output_float = output_sample;
         
-        // Write to files
+        // Store output in buffer
+        output_buffer.push_back(output_float);
+
+        // Write input and message to files immediately
         input_file << i << " " << am_signal << std::endl;
-        output_file << i << " " << output_float << std::endl;
         message_file << i << " " << message * MODULATION_INDEX << std::endl;
         
         // Error checking (skip initial transient - first 500 samples)
@@ -122,6 +131,14 @@ int main() {
         }
     }
     
+    // Write output with INITIAL_DELAY-sample delay (prepend INITIAL_DELAY zeros, skip last INITIAL_DELAY samples)
+    for (int i = 0; i < INITIAL_DELAY; i++) {
+        output_file << i << " " << 0.0 << std::endl;
+    }
+    for (int i = 0; i < NUM_SAMPLES - INITIAL_DELAY; i++) {
+        output_file << (i + INITIAL_DELAY) << " " << output_buffer[i] << std::endl;
+    }
+
     // Close files
     input_file.close();
     output_file.close();
