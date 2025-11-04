@@ -141,24 +141,41 @@ data_type mean(data_type x) {
 
 
 
-data_type am_demodulator(data_type filter_in) {
-#pragma HLS INLINE off
-#pragma HLS DATAFLOW
+void am_demodulator(hls::stream<axis_data> &input_stream,
+                    hls::stream<axis_data> &output_stream) {
+#pragma HLS INTERFACE axis port=input_stream
+#pragma HLS INTERFACE axis port=output_stream
+#pragma HLS INTERFACE ap_ctrl_none port=return
+#pragma HLS PIPELINE II=1
+
+    axis_data input_packet;
+    axis_data output_packet;
+
+    // Read from input stream (blocking read)
+    input_stream.read(input_packet);
+
+    // =============================================================================
+    // FIXED: Unpack the input data from the stream using reinterpret_cast.
+    // A direct assignment `data_type filter_in = input_packet.data;` would be a
+    // numerical conversion, corrupting the fixed-point value.
+    // =============================================================================
+    ap_int<DataWordSize> temp_input_data = input_packet.data;
+    data_type filter_in = *reinterpret_cast<data_type*>(&temp_input_data);
 
 
-data_type delayed_signal = 0.0;
-data_type hilbert_signal =	0.0;
-data_type envelope = 0.0;
-data_type filtered_envelope = 0.0;
-data_type downsampled_output = 0.0;
-data_type mean_val = 0.0;
-data_type final_output = 0.0;
-const data_type gain1  = 1.0E+00;
-const data_type gain2  = 1.0E+00;
-const data_type gain3  = 1.0E+00;
+    // Processing pipeline
+    data_type delayed_signal = 0.0;
+    data_type hilbert_signal = 0.0;
+    data_type envelope = 0.0;
+    data_type filtered_envelope = 0.0;
+    data_type downsampled_output = 0.0;
+    data_type mean_val = 0.0;
+    data_type final_output = 0.0;
+    const data_type gain1 = 1.0E+00;
+    const data_type gain2 = 1.0E+00;
+    const data_type gain3 = 1.0E+00;
 
-
-    filter_in = filter_in *  gain1 * gain2;
+    filter_in = filter_in * gain1 * gain2;
 
     // Step 1: Delay input by 16 samples
     delayed_signal = delay_line(filter_in);
@@ -177,14 +194,24 @@ const data_type gain3  = 1.0E+00;
     // Step 5: Downsample the smoothed envelope
     downsampled_output = downsampler(filtered_envelope);
 
-    // Step 6: Compute mean using your existing mean() function
+    // Step 6: Compute mean
     mean_val = mean(downsampled_output);
     mean_val = mean_val * gain3;
 
     // Step 7: Subtract mean from downsampled output
     final_output = downsampled_output - mean_val;
 
-    return final_output;
-    //return mean_val;
-}
 
+    // =============================================================================
+    // FIXED: Pack the output data into the stream using reinterpret_cast.
+    // A direct assignment `output_packet.data = final_output;` would truncate
+    // the fixed-point value to an integer, losing all fractional precision.
+    // =============================================================================
+    output_packet.data = *reinterpret_cast<ap_int<DataWordSize>*>(&final_output);
+
+    output_packet.keep = -1; // All bytes valid
+    output_packet.last = input_packet.last;
+
+    // Write to output stream
+    output_stream.write(output_packet);
+}

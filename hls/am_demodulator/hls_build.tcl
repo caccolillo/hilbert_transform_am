@@ -21,9 +21,8 @@ create_clock -period 10 -name default
 config_export -format ip_catalog
 csynth_design
 csim_design -clean
-cosim_design
 export_design -rtl verilog -format ip_catalog -description "am_demodulator" -vendor "caccolillo" -display_name "am_demodulator" -output "../am_demodulator.zip"
-
+cosim_design
 # Exit HLS
 exit
 
