@@ -155,7 +155,7 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
     input_stream.read(input_packet);
 
     // =============================================================================
-    // FIXED: Unpack the input data from the stream using reinterpret_cast.
+    // Unpack the input data from the stream using reinterpret_cast.
     // A direct assignment `data_type filter_in = input_packet.data;` would be a
     // numerical conversion, corrupting the fixed-point value.
     // =============================================================================
