@@ -42,7 +42,7 @@
 #define INITIAL_DELAY 436
 
 // Test parameters
-const int NUM_SAMPLES = 38000;
+const int NUM_SAMPLES = 78000;
 const float SAMPLE_RATE = 480000.0;  // 480 kHz sampling rate
 const float CARRIER_FREQ = 100000.0; // 100 kHz carrier
 const float MESSAGE_FREQ = 1000.0;   // 1 kHz message signal

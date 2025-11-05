@@ -131,15 +131,84 @@ data_type filter1(data_type input) {
 
 }
 
+//data_type mean(data_type x) {
+//    static data_type y = 0;
+//    const data_type alpha = 0.0001; // smaller alpha → slower, smoother DC estimate
+//#pragma HLS INLINE off
+//    y = y + alpha * (x - y);
+//    return y;
+//}
+
+//data_type mean(data_type x) {
+//    static data_type y = 0;
+//    const int ALPHA_SHIFT = 12;
+//#pragma HLS INLINE off
+//#pragma HLS RESET variable=y
+//#pragma HLS PIPELINE II=1
+//
+//    data_type error = x - y;
+//    data_type update = error >> ALPHA_SHIFT;
+//    y = y + update;
+//    return y;
+//}
+
+//
+//data_type mean(data_type x) {
+//    static data_type y = 0;
+//    const data_type alpha = 0.0001;
+//#pragma HLS INLINE off
+//#pragma HLS RESET variable=y
+//#pragma HLS PIPELINE II=1
+//
+//    data_type error = x - y;
+//    data_type update = error * alpha;
+//    y = y + update;
+//    return y;
+//}
+
+
+//data_type mean(data_type x) {
+//    static data_type y = 0;
+//    const data_type alpha = 0.0001;
+//    data_type error;
+//    data_type update;
+//#pragma HLS INLINE off
+//#pragma HLS RESET variable=y
+//#pragma HLS PIPELINE II=1
+//
+//
+//
+//#pragma HLS BIND_OP variable=error op=sub impl=dsp
+//#pragma HLS BIND_OP variable=update op=mul impl=dsp
+//#pragma HLS BIND_OP variable=y op=add impl=dsp
+//
+//
+//    error = x - y;
+//    update = error * alpha;
+//    y = y + update;
+//
+//    return y;
+//}
+
+
 data_type mean(data_type x) {
     static data_type y = 0;
-    const data_type alpha = 0.0001; // smaller alpha → slower, smoother DC estimate
+    const data_type alpha = 0.0001;
+
 #pragma HLS INLINE off
-    y = y + alpha * (x - y);
+#pragma HLS RESET variable=y
+#pragma HLS PIPELINE II=1
+    data_type error = x - y;
+    data_type update = error * alpha;
+    // Modern Vitis HLS approach
+#pragma HLS RESOURCE variable=update core=DSP48
+#pragma HLS RESOURCE variable=error core=DSP48
+
+
+    y = y + update;
+
     return y;
 }
-
-
 
 void am_demodulator(hls::stream<axis_data> &input_stream,
                     hls::stream<axis_data> &output_stream) {
