@@ -13,8 +13,8 @@
 #define FILTER_LENGTH 32
 
 // Data format
-const int DataWordSize = 40;
-const int DataIntSize = 16;
+const int DataWordSize = 18;
+const int DataIntSize = 4;
 const float DataMaxVal = pow(2.0, DataIntSize-1);
 
 #ifdef DEBUG
@@ -39,7 +39,7 @@ const int CoeffIntSize = 4;
 #ifdef DEBUG
   typedef float accum_type;
 #else
-  typedef ap_fixed<DataWordSize+CoeffWordSize+20, DataIntSize+CoeffIntSize, AP_TRN, AP_WRAP, 0> accum_type;
+  typedef ap_fixed<DataWordSize+CoeffWordSize+10, DataIntSize+CoeffIntSize, AP_TRN, AP_WRAP, 0> accum_type;
 #endif
 
 
