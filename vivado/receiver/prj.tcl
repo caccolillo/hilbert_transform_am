@@ -54,8 +54,8 @@ if { $obj != {} } {
 
 
 #add simulation sources
-#set_property SOURCE_SET sources_1 [get_filesets sim_1]
-#add_files -fileset sim_1 -norecurse ./tb_modem.vhd
+set_property SOURCE_SET sources_1 [get_filesets sim_1]
+add_files -fileset sim_1 -norecurse ./tb_receiver.sv
 
 #add design sources
 #add_files -norecurse {./clocked_comparator_25bit.vhd ./mux2to1_32bit.vhd ./sinewave_generator.vhd}
