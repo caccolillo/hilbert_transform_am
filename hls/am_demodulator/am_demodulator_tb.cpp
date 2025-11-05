@@ -16,6 +16,7 @@
  *
  * The testbench generates a standard AM signal: s(t) = (1 + m*cos(2πf_m*t)) * cos(2πf_c*t)
  * where m is the modulation index, f_m is the message frequency, and f_c is the carrier.
+ * The signal is normalized to ensure -1 < am_signal < 1.
  *
  * Test Parameters:
  * - Sampling Rate: 480 kHz
@@ -56,6 +57,13 @@ int main() {
     std::cout << "Message Frequency: " << MESSAGE_FREQ << " Hz" << std::endl;
     std::cout << "Modulation Index: " << MODULATION_INDEX << std::endl;
     std::cout << "Number of Samples: " << NUM_SAMPLES << std::endl;
+
+    // Calculate normalization factor to keep signal in range [-1, 1]
+    float max_envelope = 1.0 + MODULATION_INDEX;  // Maximum envelope value
+    float normalization_factor = 1.0 / max_envelope;
+    std::cout << "Normalization Factor: " << normalization_factor << std::endl;
+    std::cout << "Signal Range: [-" << max_envelope * normalization_factor
+              << ", " << max_envelope * normalization_factor << "]" << std::endl;
     std::cout << "========================================" << std::endl;
 
     // Create AXI Stream instances
@@ -92,7 +100,8 @@ int main() {
         float message = cos(2.0 * M_PI * MESSAGE_FREQ * t);
 
         // Generate AM modulated signal: s(t) = (1 + m*message(t)) * cos(2*pi*fc*t)
-        float am_signal = (1.0 + MODULATION_INDEX * message) * cos(2.0 * M_PI * CARRIER_FREQ * t);
+        // Normalize to keep signal in range [-1, 1]
+        float am_signal = (1.0 + MODULATION_INDEX * message) * cos(2.0 * M_PI * CARRIER_FREQ * t) * normalization_factor;
 
         // Convert to fixed-point
         data_type input_sample = am_signal;
@@ -114,7 +123,7 @@ int main() {
 
         // Write input and message to files immediately
         input_file << i << " " << am_signal << std::endl;
-        message_file << i << " " << message * MODULATION_INDEX << std::endl;
+        message_file << i << " " << message * MODULATION_INDEX * normalization_factor << std::endl;
 
 
         // Call the demodulator (processes one sample per call)
@@ -149,7 +158,7 @@ int main() {
             if (i > 500) {
                 float t = (float)i / SAMPLE_RATE;
                 float message = cos(2.0 * M_PI * MESSAGE_FREQ * t);
-                float expected = message * MODULATION_INDEX;
+                float expected = message * MODULATION_INDEX * normalization_factor;
                 float error = fabs(output_float - expected);
 
                 if (error > max_error) {
