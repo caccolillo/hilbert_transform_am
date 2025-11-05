@@ -125,6 +125,8 @@ set bCheckIPs 1
 if { $bCheckIPs == 1 } {
    set list_check_ips "\ 
 caccolillo:hls:am_demodulator:1.0\
+xilinx.com:ip:axi4stream_vip:1.1\
+xilinx.com:ip:sim_clk_gen:1.0\
 "
 
    set list_ips_missing ""
@@ -188,36 +190,44 @@ proc create_root_design { parentCell } {
 
 
   # Create interface ports
-  set input_stream_0 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 input_stream_0 ]
-  set_property -dict [ list \
-   CONFIG.HAS_TKEEP {1} \
-   CONFIG.HAS_TLAST {1} \
-   CONFIG.HAS_TREADY {1} \
-   CONFIG.HAS_TSTRB {1} \
-   CONFIG.LAYERED_METADATA {undef} \
-   CONFIG.TDATA_NUM_BYTES {5} \
-   CONFIG.TDEST_WIDTH {0} \
-   CONFIG.TID_WIDTH {0} \
-   CONFIG.TUSER_WIDTH {0} \
-   ] $input_stream_0
-
-  set output_stream_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 output_stream_0 ]
-
 
   # Create ports
-  set ap_clk_0 [ create_bd_port -dir I -type clk ap_clk_0 ]
-  set ap_rst_n_0 [ create_bd_port -dir I -type rst ap_rst_n_0 ]
 
   # Create instance: am_demodulator_1, and set properties
   set am_demodulator_1 [ create_bd_cell -type ip -vlnv caccolillo:hls:am_demodulator:1.0 am_demodulator_1 ]
 
+  # Create instance: axi4stream_vip_0, and set properties
+  set axi4stream_vip_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi4stream_vip:1.1 axi4stream_vip_0 ]
+  set_property -dict [list \
+    CONFIG.HAS_TKEEP {0} \
+    CONFIG.HAS_TLAST {0} \
+    CONFIG.HAS_TREADY {1} \
+    CONFIG.HAS_TSTRB {0} \
+    CONFIG.INTERFACE_MODE {MASTER} \
+    CONFIG.TDATA_NUM_BYTES {2} \
+    CONFIG.TDEST_WIDTH {1} \
+    CONFIG.TID_WIDTH {1} \
+    CONFIG.TUSER_WIDTH {0} \
+  ] $axi4stream_vip_0
+
+
+  # Create instance: axi4stream_vip_1, and set properties
+  set axi4stream_vip_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi4stream_vip:1.1 axi4stream_vip_1 ]
+  set_property CONFIG.INTERFACE_MODE {SLAVE} $axi4stream_vip_1
+
+
+  # Create instance: sim_clk_gen_0, and set properties
+  set sim_clk_gen_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:sim_clk_gen:1.0 sim_clk_gen_0 ]
+  set_property CONFIG.CLOCK_TYPE {Single_Ended} $sim_clk_gen_0
+
+
   # Create interface connections
-  connect_bd_intf_net -intf_net am_demodulator_1_output_stream [get_bd_intf_ports output_stream_0] [get_bd_intf_pins am_demodulator_1/output_stream]
-  connect_bd_intf_net -intf_net input_stream_0_1 [get_bd_intf_ports input_stream_0] [get_bd_intf_pins am_demodulator_1/input_stream]
+  connect_bd_intf_net -intf_net am_demodulator_1_output_stream [get_bd_intf_pins am_demodulator_1/output_stream] [get_bd_intf_pins axi4stream_vip_1/S_AXIS]
+  connect_bd_intf_net -intf_net axi4stream_vip_0_M_AXIS [get_bd_intf_pins am_demodulator_1/input_stream] [get_bd_intf_pins axi4stream_vip_0/M_AXIS]
 
   # Create port connections
-  connect_bd_net -net ap_clk_0_1 [get_bd_ports ap_clk_0] [get_bd_pins am_demodulator_1/ap_clk]
-  connect_bd_net -net ap_rst_n_0_1 [get_bd_ports ap_rst_n_0] [get_bd_pins am_demodulator_1/ap_rst_n]
+  connect_bd_net -net sim_clk_gen_0_clk [get_bd_pins am_demodulator_1/ap_clk] [get_bd_pins axi4stream_vip_0/aclk] [get_bd_pins axi4stream_vip_1/aclk] [get_bd_pins sim_clk_gen_0/clk]
+  connect_bd_net -net util_vector_logic_0_Res [get_bd_pins am_demodulator_1/ap_rst_n] [get_bd_pins axi4stream_vip_0/aresetn] [get_bd_pins axi4stream_vip_1/aresetn] [get_bd_pins sim_clk_gen_0/sync_rst]
 
   # Create address segments
 
