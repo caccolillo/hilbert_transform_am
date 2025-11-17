@@ -13,7 +13,7 @@
 #define FILTER_LENGTH 32
 
 // Data format
-const int DataWordSize = 18;
+const int DataWordSize = 16;
 const int DataIntSize = 4;
 const float DataMaxVal = pow(2.0, DataIntSize-1);
 

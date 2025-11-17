@@ -193,7 +193,7 @@ data_type filter1(data_type input) {
 
 data_type mean(data_type x) {
     static data_type y = 0;
-    const data_type alpha = 0.0001;
+    const data_type alpha = 0.001;
 
 #pragma HLS INLINE off
 #pragma HLS RESET variable=y
