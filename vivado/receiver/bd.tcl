@@ -200,7 +200,7 @@ proc create_root_design { parentCell } {
   set axi4stream_vip_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi4stream_vip:1.1 axi4stream_vip_0 ]
   set_property -dict [list \
     CONFIG.HAS_TKEEP {0} \
-    CONFIG.HAS_TLAST {0} \
+    CONFIG.HAS_TLAST {1} \
     CONFIG.HAS_TREADY {1} \
     CONFIG.HAS_TSTRB {0} \
     CONFIG.INTERFACE_MODE {MASTER} \
