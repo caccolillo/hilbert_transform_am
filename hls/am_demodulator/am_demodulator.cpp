@@ -217,6 +217,21 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
 #pragma HLS INTERFACE ap_ctrl_none port=return
 #pragma HLS PIPELINE II=1
 
+// increase FIFO depth so RTL won't deadlock
+#pragma HLS STREAM variable=input_stream  depth=512
+#pragma HLS STREAM variable=output_stream depth=512
+
+    // If the output stream is full, don't consume an input sample (avoid blocking write).
+    if (output_stream.full()) {
+        return;
+    }
+    // If no input is available, do nothing this cycle.
+    if (input_stream.empty()) {
+        return;
+    }
+
+
+    // Safe to read input and produce output
     axis_data input_packet;
     axis_data output_packet;
 
@@ -284,3 +299,4 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
     // Write to output stream
     output_stream.write(output_packet);
 }
+
