@@ -17,7 +17,7 @@ module axi4stream_vip_0_exdes_tb();
   design_1_axi4stream_vip_1_0_slv_t slv_agent;
 
   bit clock = 0;
-  bit reset = 1;
+  bit reset = 0;
 
   // Declare variables for the task
   bit[15:0] test_data[];
@@ -32,10 +32,11 @@ module axi4stream_vip_0_exdes_tb();
   //generate clock
   always #10 clock = ~clock;
 
-  //generate reset
+  // Generate active-low reset for 100 clock cycles
   initial begin
-    reset = 1;
-    #100 reset = 0;
+    reset = 0;        // active low
+    repeat (100) @(posedge clock);  // wait 100 clock cycles
+    reset = 1;        // deactivate reset
   end
 
 
