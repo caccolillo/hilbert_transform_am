@@ -18,10 +18,17 @@ module axi4stream_vip_0_exdes_tb();
 
   bit clock = 0;
   bit reset = 0;
+  int num_samples = 1000;
 
-  // Declare variables for the task
+  // Declare variables for the TX task
   bit[15:0] test_data[];
   axi4stream_transaction wr_transaction;
+
+  // Declare variables for the RX task  
+  bit[15:0] received_data[];
+  int num_received;
+  axi4stream_transaction rd_transaction;
+
 
   //instantiate DUT
   design_1_wrapper DUT(
@@ -143,6 +150,171 @@ task automatic generate_sine_wave(
            num_samples, amplitude, frequency);
 endtask : generate_sine_wave
 
+
+
+/****************************************************************************************************************
+ Task receive_packet_blocking reads data from the slave VIP monitor and stores it in an output array.
+ This task blocks until data arrives - use when you're confident the DUT will produce output.
+ 
+ Parameters:
+   max_elements    - Maximum number of elements to read (prevents runaway on missing TLAST)
+   data_array      - Output array populated with received data (sized to actual received count)
+   elements_read   - Output count of how many elements were actually received
+   rd_transaction  - Pre-declared transaction object for receiving monitor data
+   
+ The task reads until TLAST is detected or max_elements is reached.
+ Each transaction is read from the slave VIP's monitor using a blocking get() call.
+ 
+ Usage Example:
+   bit[15:0] rx_data[];
+   int count;
+   axi4stream_transaction rd_transaction;
+   receive_packet_blocking(10000, rx_data, count, rd_transaction);
+   $display("Received %0d samples", count);
+***************************************************************************************************************/
+task automatic receive_packet_blocking(
+  input int max_elements,
+  output bit[15:0] data_array[],
+  output int elements_read,
+  input axi4stream_transaction rd_transaction
+);
+  bit[15:0] temp_data[];
+  bit packet_complete = 0;
+  
+  // Validate input
+  if(max_elements <= 0) begin
+    $display("Error: max_elements must be greater than 0");
+    elements_read = 0;
+    return;
+  end
+  
+  // Allocate temporary array
+  temp_data = new[max_elements];
+  elements_read = 0;
+  
+  $display("Waiting to receive packet (max %0d elements)...", max_elements);
+  
+  // Read data from slave VIP monitor
+  while(!packet_complete && elements_read < max_elements) begin
+    // Blocking get - waits for transaction
+    slv_agent.monitor.item_collected_port.get(rd_transaction);
+    
+    // Store data
+    temp_data[elements_read] = rd_transaction.get_data_beat();
+    elements_read++;
+    
+    // Check for TLAST
+    if(rd_transaction.get_last() == 1) begin
+      packet_complete = 1;
+      $display("Received complete packet: %0d elements (TLAST detected)", elements_read);
+    end
+  end
+  
+  // Check if we hit max without TLAST
+  if(!packet_complete && elements_read >= max_elements) begin
+    $display("Warning: Reached max_elements (%0d) without detecting TLAST", max_elements);
+  end
+  
+  // Copy to sized output array
+  data_array = new[elements_read];
+  for(int i = 0; i < elements_read; i++) begin
+    data_array[i] = temp_data[i];
+  end
+  
+endtask : receive_packet_blocking
+
+
+/****************************************************************************************************************
+ Task save_data_to_file writes received data array to a text file.
+ 
+ Parameters:
+   filename        - Name of the output file (e.g., "logfile.txt")
+   data_array      - Array of 16-bit data to write
+   num_elements    - Number of elements in the array to write
+   format_type     - Output format: 0=simple hex, 1=detailed, 2=CSV
+   
+ Format types:
+   0 - Simple: One hex value per line (0x1234)
+   1 - Detailed: Index, Hex, Signed Decimal, Real value with header
+   2 - CSV: Comma-separated values for import into Excel/MATLAB
+   
+ Usage Example:
+   save_data_to_file("logfile.txt", received_data, num_received, 1);
+***************************************************************************************************************/
+task automatic save_data_to_file(
+  input string filename,
+  input bit[15:0] data_array[],
+  input int num_elements,
+  input int format_type = 1
+);
+  integer file_handle;
+  real fixed_point_value;
+  
+  // Validate inputs
+  if(num_elements <= 0) begin
+    $display("Error: num_elements must be greater than 0");
+    return;
+  end
+  
+  if(num_elements > data_array.size()) begin
+    $display("Error: num_elements (%0d) exceeds data_array size (%0d)", num_elements, data_array.size());
+    return;
+  end
+  
+  // Open file for writing
+  file_handle = $fopen(filename, "w");
+  
+  if (file_handle == 0) begin
+    $display("Error: Could not open %s for writing", filename);
+    return;
+  end
+  
+  $display("Writing %0d samples to %s (format type %0d)...", num_elements, filename, format_type);
+  
+  // Write data based on format type
+  case(format_type)
+    0: begin  // Simple hex format
+      for(int i = 0; i < num_elements; i++) begin
+        $fwrite(file_handle, "%04h\n", data_array[i]);
+      end
+    end
+    
+    1: begin  // Detailed format with header
+      $fwrite(file_handle, "# Received AXI Stream Data\n");
+      $fwrite(file_handle, "# Total samples: %0d\n", num_elements);
+      $fwrite(file_handle, "# Format: Index, Hex, Signed Decimal, ap_fixed<16,4> Real Value\n");
+      $fwrite(file_handle, "#\n");
+      
+      for(int i = 0; i < num_elements; i++) begin
+        fixed_point_value = $signed(data_array[i]) / 4096.0;  // Convert from ap_fixed<16,4>
+        $fwrite(file_handle, "%0d, 0x%04h, %0d, %.6f\n", 
+                i, data_array[i], $signed(data_array[i]), fixed_point_value);
+      end
+    end
+    
+    2: begin  // CSV format
+      $fwrite(file_handle, "Index,Hex,Decimal,Real\n");
+      
+      for(int i = 0; i < num_elements; i++) begin
+        fixed_point_value = $signed(data_array[i]) / 4096.0;
+        $fwrite(file_handle, "%0d,0x%04h,%0d,%.6f\n", 
+                i, data_array[i], $signed(data_array[i]), fixed_point_value);
+      end
+    end
+    
+    default: begin
+      $display("Error: Invalid format_type (%0d). Valid options: 0, 1, 2", format_type);
+      $fclose(file_handle);
+      return;
+    end
+  endcase
+  
+  $fclose(file_handle);
+  $display("Successfully wrote %0d samples to %s", num_elements, filename);
+  
+endtask : save_data_to_file
+
+
 //send test data
 initial begin
   wait(reset == 0);
@@ -191,19 +363,16 @@ initial begin
   $display("\n=== Test 5: Sine Wave Generation (ap_fixed<16,4> format) ===");
   
   // Low frequency sine wave: amplitude=5.2, frequency=0.02 (200 samples per cycle), 10000 samples
-  generate_sine_wave(5.2, 0.02, 10000, test_data);
-  send_a_packet(test_data, 10000, wr_transaction);
+  generate_sine_wave(5.2, 0.02, num_samples, test_data);
+  // Send sinewave over AXI stream master channle
+  send_a_packet(test_data, num_samples, wr_transaction);
+  // Receive demodulated data from AXI stream slave channel
+  receive_packet_blocking(num_samples, received_data, num_received, rd_transaction);
+  // Simple hex format data saving
+  save_data_to_file("logfile.txt", received_data, num_received, 0);
   #25000;
   
-//  // Medium frequency sine wave: amplitude=0.8, frequency=0.05 (20 samples per cycle), 10000 samples
-//  generate_sine_wave(0.8, 0.05, 10000, test_data);
-//  send_a_packet(test_data, 10000, wr_transaction);
-//  #15000;
-  
-//  // Higher frequency sine wave: amplitude=0.5, frequency=0.1 (10 samples per cycle), 10000 samples
-//  generate_sine_wave(0.5, 0.1, 10000, test_data);
-//  send_a_packet(test_data, 10000, wr_transaction);
-//  #10000;
+
   
   $display("Test complete");
   $finish;
