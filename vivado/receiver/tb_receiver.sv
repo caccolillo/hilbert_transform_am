@@ -24,7 +24,10 @@ module axi4stream_vip_0_exdes_tb();
   axi4stream_transaction wr_transaction;
 
   //instantiate DUT
-  design_1_wrapper DUT();
+  design_1_wrapper DUT(
+    .clock(clock),
+    .reset(reset)
+  );
 
   //generate clock
   always #10 clock = ~clock;
