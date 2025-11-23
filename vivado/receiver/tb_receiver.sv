@@ -18,7 +18,7 @@ module axi4stream_vip_0_exdes_tb();
 
   bit clock = 0;
   bit reset = 0;
-  int num_samples = 1000;
+  int num_samples = 10000;
 
   // Declare variables for the TX task
   bit[15:0] test_data[];
@@ -314,6 +314,89 @@ task automatic save_data_to_file(
   
 endtask : save_data_to_file
 
+/****************************************************************************************************************
+ Task generate_am_signal generates an AM modulated signal matching the C++ testbench.
+ 
+ The AM signal is: (1 + modulation_index * message) * carrier * normalization
+ where:
+   - message = cos(2*pi*message_freq*t)
+   - carrier = cos(2*pi*carrier_freq*t)
+   - normalization = 1 / (1 + modulation_index)
+ 
+ Parameters:
+   sample_rate      - Sample rate in Hz (e.g., 480000.0)
+   carrier_freq     - Carrier frequency in Hz (e.g., 100000.0)
+   message_freq     - Message/modulating frequency in Hz (e.g., 1000.0)
+   modulation_index - Modulation depth 0.0 to 1.0 (e.g., 0.8)
+   num_samples      - Number of samples to generate
+   data_array       - Output array populated with AM signal samples
+   
+ Values are converted to ap_fixed<16,4> format (4 integer bits, 12 fractional bits)
+ with scaling factor of 2^12 = 4096 for the fractional part.
+***************************************************************************************************************/
+task automatic generate_am_signal(
+  input real sample_rate,
+  input real carrier_freq,
+  input real message_freq,
+  input real modulation_index,
+  input int num_samples,
+  output bit[15:0] data_array[]
+);
+  real pi = 3.14159265358979323846;
+  real t;
+  real message;
+  real carrier;
+  real am_signal;
+  real max_env;
+  real norm;
+  real scaled_value;
+  int signed fixed_point_value;
+  
+  // Validate inputs
+  if(num_samples <= 0) begin
+    $display("Error: num_samples must be greater than 0");
+    return;
+  end
+  
+  if(modulation_index < 0 || modulation_index > 1.0) begin
+    $display("Warning: modulation_index should be between 0 and 1.0");
+  end
+  
+  // Calculate normalization factor (matches C++ testbench)
+  max_env = 1.0 + modulation_index;
+  norm = 1.0 / max_env;
+  
+  // Allocate array
+  data_array = new[num_samples];
+  
+  // Generate AM signal samples
+  for(int i = 0; i < num_samples; i++) begin
+    // Calculate time
+    t = i / sample_rate;
+    
+    // Generate message signal (cosine wave)
+    message = $cos(2.0 * pi * message_freq * t);
+    
+    // Generate carrier signal (cosine wave)
+    carrier = $cos(2.0 * pi * carrier_freq * t);
+    
+    // AM modulation: (1 + m*message) * carrier * normalization
+    am_signal = (1.0 + modulation_index * message) * carrier * norm;
+    
+    // Convert to ap_fixed<16,4> format
+    scaled_value = am_signal * 4096.0;  // Scale by 2^12 for fractional part
+    fixed_point_value = int'(scaled_value);
+    data_array[i] = fixed_point_value[15:0];
+  end
+  
+  $display("Generated %0d AM signal samples:", num_samples);
+  $display("  Sample Rate: %.1f Hz", sample_rate);
+  $display("  Carrier Frequency: %.1f Hz", carrier_freq);
+  $display("  Message Frequency: %.1f Hz", message_freq);
+  $display("  Modulation Index: %.2f", modulation_index);
+  $display("  Format: ap_fixed<16,4>");
+  
+endtask : generate_am_signal
 
 //send test data
 initial begin
@@ -330,41 +413,20 @@ initial begin
   slv_agent.start_slave();
 
   #200;
-
-
-
-//  // Test 1: Send simple packet
-//  test_data = '{16'hDEAD, 16'hBEEF};
-//  send_a_packet(test_data, 2, wr_transaction);
-//  #300;
-
-//  // Test 2: Send longer packet
-//  test_data = '{16'h1111, 16'h2222, 16'h3333, 16'h4444};
-//  send_a_packet(test_data, 4, wr_transaction);
-//  #500;
-
-//  // Test 3: Send only part of array
-//  test_data = '{16'hAAAA, 16'hBBBB, 16'hCCCC, 16'hDDDD, 16'hEEEE};
-//  send_a_packet(test_data, 3, wr_transaction);  // Only first 3
-//  #300;
-
-//  // Test 4: Send 1000 random values in range 0x1000 to 0xF000
-//  test_data = new[1000];
-//  for(int i = 0; i < 1000; i++) begin
-//    test_data[i] = $urandom_range(16'hF000, 16'h1000);
-//  end
-//  send_a_packet(test_data, 1000, wr_transaction);
-//  #50000;
-
    
-  // Test 5: Send sine wave with configurable parameters
-  // These parameters match the ap_fixed<16,4> format used in the C++ testbench
-  // Amplitude range: 0.0 to 7.999 (with 4 integer bits)
-  $display("\n=== Test 5: Sine Wave Generation (ap_fixed<16,4> format) ===");
+  $display("\n=== Test: AM Modulated Signal Generation (ap_fixed<16,4> format) ===");
   
-  // Low frequency sine wave: amplitude=5.2, frequency=0.02 (200 samples per cycle), 10000 samples
-  generate_sine_wave(5.2, 0.02, num_samples, test_data);
-  // Send sinewave over AXI stream master channle
+  // Create an AM modulated signal
+  generate_am_signal(
+    .sample_rate(480000.0),      // 480 kHz sample rate
+    .carrier_freq(100000.0),     // 100 kHz carrier
+    .message_freq(1000.0),       // 1 kHz message signal
+    .modulation_index(0.8),      // 80% modulation
+    .num_samples(num_samples),   // 1000 samples
+    .data_array(test_data)
+  );  
+  
+  // Send stimulus over AXI stream master channle
   send_a_packet(test_data, num_samples, wr_transaction);
   // Receive demodulated data from AXI stream slave channel
   receive_packet_blocking(num_samples, received_data, num_received, rd_transaction);
@@ -372,8 +434,7 @@ initial begin
   save_data_to_file("logfile.txt", received_data, num_received, 0);
   #25000;
   
-
-  
+ 
   $display("Test complete");
   $finish;
 end
