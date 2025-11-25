@@ -126,6 +126,7 @@ if { $bCheckIPs == 1 } {
    set list_check_ips "\ 
 caccolillo:hls:am_demodulator:1.0\
 xilinx.com:ip:axi4stream_vip:1.1\
+xilinx.com:ip:axis_data_fifo:2.0\
 "
 
    set list_ips_missing ""
@@ -197,12 +198,10 @@ proc create_root_design { parentCell } {
   # Create instance: am_demodulator_1, and set properties
   set am_demodulator_1 [ create_bd_cell -type ip -vlnv caccolillo:hls:am_demodulator:1.0 am_demodulator_1 ]
 
-  set_property SELECTED_SIM_MODEL rtl  $am_demodulator_1
-
   # Create instance: axi4stream_vip_0, and set properties
   set axi4stream_vip_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi4stream_vip:1.1 axi4stream_vip_0 ]
   set_property -dict [list \
-    CONFIG.HAS_TKEEP {0} \
+    CONFIG.HAS_TKEEP {1} \
     CONFIG.HAS_TLAST {1} \
     CONFIG.HAS_TREADY {1} \
     CONFIG.HAS_TSTRB {0} \
@@ -219,13 +218,25 @@ proc create_root_design { parentCell } {
   set_property CONFIG.INTERFACE_MODE {SLAVE} $axi4stream_vip_1
 
 
+  # Create instance: axis_data_fifo_0, and set properties
+  set axis_data_fifo_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 axis_data_fifo_0 ]
+  set_property CONFIG.FIFO_DEPTH {1024} $axis_data_fifo_0
+
+
+  # Create instance: axis_data_fifo_1, and set properties
+  set axis_data_fifo_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 axis_data_fifo_1 ]
+  set_property CONFIG.FIFO_DEPTH {1024} $axis_data_fifo_1
+
+
   # Create interface connections
-  connect_bd_intf_net -intf_net am_demodulator_1_output_stream [get_bd_intf_pins am_demodulator_1/output_stream] [get_bd_intf_pins axi4stream_vip_1/S_AXIS]
-  connect_bd_intf_net -intf_net axi4stream_vip_0_M_AXIS [get_bd_intf_pins am_demodulator_1/input_stream] [get_bd_intf_pins axi4stream_vip_0/M_AXIS]
+  connect_bd_intf_net -intf_net am_demodulator_1_output_stream [get_bd_intf_pins am_demodulator_1/output_stream] [get_bd_intf_pins axis_data_fifo_1/S_AXIS]
+  connect_bd_intf_net -intf_net axi4stream_vip_0_M_AXIS [get_bd_intf_pins axi4stream_vip_0/M_AXIS] [get_bd_intf_pins axis_data_fifo_0/S_AXIS]
+  connect_bd_intf_net -intf_net axis_data_fifo_0_M_AXIS [get_bd_intf_pins am_demodulator_1/input_stream] [get_bd_intf_pins axis_data_fifo_0/M_AXIS]
+  connect_bd_intf_net -intf_net axis_data_fifo_1_M_AXIS [get_bd_intf_pins axi4stream_vip_1/S_AXIS] [get_bd_intf_pins axis_data_fifo_1/M_AXIS]
 
   # Create port connections
-  connect_bd_net -net sim_clk_gen_0_clk [get_bd_ports clock] [get_bd_pins am_demodulator_1/ap_clk] [get_bd_pins axi4stream_vip_0/aclk] [get_bd_pins axi4stream_vip_1/aclk]
-  connect_bd_net -net util_vector_logic_0_Res [get_bd_ports reset] [get_bd_pins am_demodulator_1/ap_rst_n] [get_bd_pins axi4stream_vip_0/aresetn] [get_bd_pins axi4stream_vip_1/aresetn]
+  connect_bd_net -net sim_clk_gen_0_clk [get_bd_ports clock] [get_bd_pins am_demodulator_1/ap_clk] [get_bd_pins axi4stream_vip_0/aclk] [get_bd_pins axi4stream_vip_1/aclk] [get_bd_pins axis_data_fifo_0/s_axis_aclk] [get_bd_pins axis_data_fifo_1/s_axis_aclk]
+  connect_bd_net -net util_vector_logic_0_Res [get_bd_ports reset] [get_bd_pins am_demodulator_1/ap_rst_n] [get_bd_pins axi4stream_vip_0/aresetn] [get_bd_pins axi4stream_vip_1/aresetn] [get_bd_pins axis_data_fifo_0/s_axis_aresetn] [get_bd_pins axis_data_fifo_1/s_axis_aresetn]
 
   # Create address segments
 

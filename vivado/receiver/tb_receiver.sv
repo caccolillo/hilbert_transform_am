@@ -39,12 +39,6 @@ module axi4stream_vip_0_exdes_tb();
   //generate clock
   always #10 clock = ~clock;
 
-  // Generate active-low reset for 100 clock cycles
-  initial begin
-    reset = 0;        // active low
-    repeat (100) @(posedge clock);  // wait 100 clock cycles
-    reset = 1;        // deactivate reset
-  end
 
 
 /****************************************************************************************************************
@@ -57,8 +51,8 @@ task automatic send_a_packet(
   input int num_elements,
   input axi4stream_transaction wr_transaction
 );
-  bit[2*8-1:0]                            data_beat;
-  bit[2-1:0]                              keep_beat;
+  bit[2*8-1:0] data_beat;
+  bit[2-1:0] keep_beat;  // 2 bits for 2 bytes
   
   // Validate input
   if(num_elements <= 0) begin
@@ -71,29 +65,32 @@ task automatic send_a_packet(
     return;
   end
   
-
-  
   for(int i=0; i<num_elements; i++) begin
     // Get the 16-bit data directly from the array
     data_beat = data_array[i];
+    keep_beat = 2'b11;  // Both bytes are valid
     
     // Create and configure transaction
     wr_transaction = mst_agent.driver.create_transaction("Master VIP write transaction");
-    //wr_transaction.set_driver_return_item_policy(XIL_AXI4STREAM_AT_ACCEPT_RETURN);
     SEND_PACKET_FAILURE: assert(wr_transaction.randomize());
+    
     wr_transaction.set_data_beat(data_beat);
-    wr_transaction.set_last(0);
+    wr_transaction.set_keep_beat(keep_beat);  // Set TKEEP to 0b11
     
     // Set TLAST on final beat
     if(i == num_elements-1) begin
       wr_transaction.set_last(1);  
-    end     
+    end else begin
+      wr_transaction.set_last(0);
+    end
     
     // Send transaction
     mst_agent.driver.send(wr_transaction);
   end
+  
+  $display("Sent packet with %0d beats", num_elements);
 endtask : send_a_packet
-
+  
 
 /****************************************************************************************************************
  Task generate_sine_wave generates a sine wave matching ap_fixed<16,4> format used in HLS.
@@ -398,43 +395,57 @@ task automatic generate_am_signal(
   
 endtask : generate_am_signal
 
-//send test data
+////send test data
 initial begin
-  wait(reset == 0);
-  #200;
-
+  // Initialize signals
+  reset = 0;
+  
+  // Wait for some time
+  repeat(10) @(posedge clock);
+  
+  // Create agents
   mst_agent = new("master", DUT.design_1_i.axi4stream_vip_0.inst.IF);
   slv_agent = new("slave",  DUT.design_1_i.axi4stream_vip_1.inst.IF);
 
   mst_agent.set_verbosity(0);
   slv_agent.set_verbosity(0);
-
+  
+  // Release reset
+  reset = 1;
+  $display("Reset released at time %0t", $time);
+  
+  // Wait for reset to propagate
+  repeat(20) @(posedge clock);
+  
+  // Configure slave to be always ready (no backpressure)
+  slv_agent.vif_proxy.set_dummy_drive_type(XIL_AXI4STREAM_VIF_DRIVE_NONE);
+  
+  // Start agents
   mst_agent.start_master();
   slv_agent.start_slave();
-
-  #200;
-   
-  $display("\n=== Test: AM Modulated Signal Generation (ap_fixed<16,4> format) ===");
   
-  // Create an AM modulated signal
+  $display("Agents started at time %0t", $time);
+  
+  // Let agents initialize
+  repeat(10) @(posedge clock);
+  
+  $display("\n=== Test: AM Modulated Signal Generation ===");
+  
+  // Generate and send data
   generate_am_signal(
-    .sample_rate(480000.0),      // 480 kHz sample rate
-    .carrier_freq(100000.0),     // 100 kHz carrier
-    .message_freq(1000.0),       // 1 kHz message signal
-    .modulation_index(0.8),      // 80% modulation
-    .num_samples(num_samples),   // 1000 samples
+    .sample_rate(480000.0),
+    .carrier_freq(100000.0),
+    .message_freq(1000.0),
+    .modulation_index(0.8),
+    .num_samples(num_samples),
     .data_array(test_data)
-  );  
+  );
   
-  // Send stimulus over AXI stream master channle
   send_a_packet(test_data, num_samples, wr_transaction);
-  // Receive demodulated data from AXI stream slave channel
   receive_packet_blocking(num_samples, received_data, num_received, rd_transaction);
-  // Simple hex format data saving
   save_data_to_file("logfile.txt", received_data, num_received, 0);
-  #25000;
   
- 
+  #25000;
   $display("Test complete");
   $finish;
 end
