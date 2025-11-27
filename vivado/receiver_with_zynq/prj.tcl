@@ -11,14 +11,14 @@ set orig_proj_dir "[file normalize "$origin_dir/project_1"]"
 
 
 # Create project
-create_project ${_xil_proj_name_} ./${_xil_proj_name_} -part xc7a100tcsg324-1
+create_project ${_xil_proj_name_} ./${_xil_proj_name_} -part xczu49dr-ffvf1760-2-e
 
 # Set the directory path for the new project
 set proj_dir [get_property directory [current_project]]
 
 # Set project properties
 set obj [current_project]
-set_property -name "board_part" -value "digilentinc.com:arty-a7-100:part0:1.1" -objects $obj
+set_property -name "board_part" -value "avnet.com:ultra96v2:part0:1.2" -objects $obj
 set_property -name "default_lib" -value "xil_defaultlib" -objects $obj
 set_property -name "enable_resource_estimation" -value "0" -objects $obj
 set_property -name "enable_vhdl_2008" -value "1" -objects $obj
@@ -55,11 +55,7 @@ if { $obj != {} } {
 
 #add simulation sources
 set_property SOURCE_SET sources_1 [get_filesets sim_1]
-add_files -fileset sim_1 -norecurse ./tb_receiver.sv
-
-#add design sources
-#add_files -norecurse {./clocked_comparator_25bit.vhd ./mux2to1_32bit.vhd ./sinewave_generator.vhd}
-#update_compile_order -fileset sources_1
+add_files -fileset sim_1 -norecurse ./tb_receiver_with_zynq.sv
 
 #build block design
 source ./bd.tcl
