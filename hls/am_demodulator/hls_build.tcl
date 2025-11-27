@@ -14,7 +14,7 @@ set_top am_demodulator
 
 # Open solution and configure
 open_solution -reset "solution1"
-set_part {xc7a100t-csg324-1}
+set_part {xczu3eg-sbva484-1-i}
 create_clock -period 10 -name default
 
 # Export RTL and synthesize
