@@ -61,8 +61,8 @@ add_files -fileset sim_1 -norecurse ./tb_receiver_with_zynq.sv
 source ./bd.tcl
 
 #create hdl wrapper
-make_wrapper -files [get_files ./project_1/project_1.srcs/sources_1/bd/design_1/design_1.bd] -top
-add_files -norecurse ./project_1/project_1.gen/sources_1/bd/design_1/hdl/design_1_wrapper.vhd
+make_wrapper -files [get_files ./project_1/project_1.srcs/sources_1/bd/mpsoc_preset/mpsoc_preset.bd] -top
+add_files -norecurse ./project_1/project_1.gen/sources_1/bd/mpsoc_preset/hdl/mpsoc_preset_wrapper.vhd
 update_compile_order -fileset sources_1
 
 #add waveform configuration file
