@@ -48,10 +48,9 @@ module tb_receiver_with_zynq;
   parameter int S2MM_RSVD4      = 'h50;
 
 
-  parameter RAM_BUFER1 = 32'h0000_0000;
-  parameter RAM_BUFER2 = 32'h0000_1000;
-  parameter RAM_BUFER_SIZE = 32'h0000_0100;
-
+  parameter RAM_BUFER1 = DMA_BASE + 32'h0000_0000; // start of buffer 1 in DDR
+  parameter RAM_BUFER2 = DMA_BASE + 32'h0000_1000; // start of buffer 2 in DDR
+  parameter RAM_BUFER_SIZE = 32'h0000_0100;        // 256 bytes
 
   bit clock = 0;
   bit reset = 0;
@@ -74,38 +73,101 @@ module tb_receiver_with_zynq;
 
 
 
+// ============================================================
+// TASK: AXI DMA 128-bit Register Write (HP0)
+// ============================================================
+task automatic dma_reg_write_128(
+    input logic [31:0] addr,
+    input logic [127:0] data,
+    output logic resp
+);
+begin
+    tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_data(addr,16,data,resp);
+    $display("[%0t] DMA WRITE128  addr=0x%08h  data=0x%032h  resp=%0d", 
+             $time, addr, data, resp);
+end
+endtask
 
-  // ============================================================
-  // AXI DMA Direct Register Mode Tasks
-  // Using parameterized register offsets
-  // ============================================================
+// ============================================================
+// TASK: AXI DMA 128-bit Register Read (HP0)
+// ============================================================
+task automatic dma_reg_read_128(
+    input  logic [31:0] addr,
+    output logic [127:0] data,
+    output logic resp
+);
+begin
+    tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_data(addr,16,data,resp);
+    $display("[%0t] DMA READ128   addr=0x%08h  data=0x%032h  resp=%0d", 
+             $time, addr, data, resp);
+end
+endtask
+
+
 
 // =========================================================
-// TASK: AXI DMA Register Write
+// TASK: AXI DMA Register Write (128-bit for HP0)
 // =========================================================
 task automatic dma_reg_write(
     input  logic [31:0] addr,
     input  logic [31:0] data
 );
-    begin
-        reg resp;
-        tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_data(addr,4,data,resp);
-        $display("[%0t] DMA WRITE  addr=0x%08h  data=0x%08h  resp=%0d",$time, addr, data, resp);
-    end
+    logic [127:0] data128;
+    reg resp;
+
+    // Place data in lowest 32 bits of 128-bit word
+    data128 = {96'h0, data};
+
+    // Use 16-byte access (128-bit) for AXI HP0
+    tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_data(addr, 16, data128, resp);
+
+    $display("[%0t] DMA WRITE  addr=0x%08h  data=0x%08h  resp=%0d",$time, addr, data, resp);
 endtask
 
 // =========================================================
-// TASK: AXI DMA Register Read
+// TASK: AXI DMA Register Read (128-bit for HP0)
 // =========================================================
 task automatic dma_reg_read(
     input  logic [31:0] addr,
     output logic [31:0] data
 );
-    begin
-        reg resp;
-        tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_data(addr,4,data,resp);
-        $display("[%0t] DMA READ   addr=0x%08h  data=0x%08h  resp=%0d", $time, addr, data, resp);
+    logic [127:0] data128;
+    reg resp;
+
+    // Use 16-byte access (128-bit) for AXI HP0
+    tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_data(addr, 16, data128, resp);
+
+    // Extract lowest 32 bits
+    data = data128[31:0];
+
+    $display("[%0t] DMA READ   addr=0x%08h  data=0x%08h  resp=%0d",$time, addr, data, resp);
+endtask
+
+
+
+
+task automatic init_buffer_zero(
+    input logic [31:0] base_addr,
+    input int          buffer_size
+);
+    logic [127:0] zero_data;
+    logic resp;
+    int num_words;
+    int i;
+begin
+    num_words = (buffer_size + 15) / 16;
+    zero_data = 128'h0;
+
+    $display("[%0t] Initializing buffer at 0x%08h, %0d bytes (%0d words)...", 
+             $time, base_addr, buffer_size, num_words);
+
+    for(i = 0; i < num_words; i++) begin
+        dma_reg_write_128(base_addr + i*16, zero_data, resp);
+        if(resp !== 0) $display("Warning: write failed at 0x%08h", base_addr + i*16);
     end
+
+    $display("[%0t] Buffer initialization complete.", $time);
+end
 endtask
 
   
@@ -430,14 +492,35 @@ initial begin
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.fpga_soft_reset(32'h0);
   #2000 ;  
   
-  
-  dma_mm2s_transfer(DMA_BASE,RAM_BUFER1,RAM_BUFER_SIZE);  
+  //Initialise DDR memory buffers
+  init_buffer_zero(RAM_BUFER1, RAM_BUFER_SIZE);
+  init_buffer_zero(RAM_BUFER2, RAM_BUFER_SIZE);
 
   
-  dma_s2mm_transfer(DMA_BASE,RAM_BUFER2,RAM_BUFER_SIZE);
   
-  
-  
+
+// ---------------------------------------------------------------------
+// Parallel MM2S and S2MM transfers using fork...join
+// Addresses must be 16-byte aligned for AXI HP0
+// ---------------------------------------------------------------------
+fork
+    begin
+        $display("[%0t] Starting MM2S transfer...", $time);
+        dma_mm2s_transfer(DMA_BASE, RAM_BUFER1, RAM_BUFER_SIZE);
+        $display("[%0t] MM2S transfer completed.", $time);
+    end
+
+    begin
+        $display("[%0t] Starting S2MM transfer...", $time);
+        dma_s2mm_transfer(DMA_BASE, RAM_BUFER2, RAM_BUFER_SIZE);
+        $display("[%0t] S2MM transfer completed.", $time);
+    end
+join
+
+
+
+
+
   // Wait for some time
   repeat(10) @(posedge clock);
   
