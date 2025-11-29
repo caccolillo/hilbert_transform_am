@@ -7,14 +7,51 @@
 
 `timescale 1ns / 1ps
 
-import axi4stream_vip_pkg::*;
-import design_1_axi4stream_vip_0_0_pkg::*;
-import design_1_axi4stream_vip_1_0_pkg::*;
 
-module axi4stream_vip_0_exdes_tb();
+module tb_receiver_with_zynq;
+  parameter DMA_BASE = 32'hA000_0000;
+  // ============================================================
+  // AXI DMA Direct Register Mode Offsets (PG021)
+  // ============================================================
 
-  design_1_axi4stream_vip_0_0_mst_t mst_agent;
-  design_1_axi4stream_vip_1_0_slv_t slv_agent;
+  // -------------------------
+  // MM2S (Memory → Stream)
+  // -------------------------
+  parameter int MM2S_DMACR      = 'h00;   // Control
+  parameter int MM2S_DMASR      = 'h04;   // Status
+  parameter int MM2S_SA         = 'h18;   // Source Address (LSB)
+  parameter int MM2S_SA_MSB     = 'h1C;   // Source Address MSB (if enabled)
+  parameter int MM2S_LENGTH     = 'h28;   // Transfer Length
+
+  // -------------------------
+  // S2MM (Stream → Memory)
+  // -------------------------
+  parameter int S2MM_DMACR      = 'h30;   // Control
+  parameter int S2MM_DMASR      = 'h34;   // Status
+  parameter int S2MM_DA         = 'h48;   // Destination Address (LSB)
+  parameter int S2MM_DA_MSB     = 'h4C;   // Destination Address MSB
+  parameter int S2MM_LENGTH     = 'h58;   // Transfer Length
+
+  // -------------------------
+  // Optional: reserved offsets (for completeness)
+  // -------------------------
+  parameter int MM2S_RSVD0      = 'h08;
+  parameter int MM2S_RSVD1      = 'h0C;
+  parameter int MM2S_RSVD2      = 'h10;
+  parameter int MM2S_RSVD3      = 'h14;
+  parameter int MM2S_RSVD4      = 'h20;
+
+  parameter int S2MM_RSVD0      = 'h38;
+  parameter int S2MM_RSVD1      = 'h3C;
+  parameter int S2MM_RSVD2      = 'h40;
+  parameter int S2MM_RSVD3      = 'h44;
+  parameter int S2MM_RSVD4      = 'h50;
+
+
+  parameter RAM_BUFER1 = 32'h0000_0000;
+  parameter RAM_BUFER2 = 32'h0000_1000;
+  parameter RAM_BUFER_SIZE = 32'h0000_0100;
+
 
   bit clock = 0;
   bit reset = 0;
@@ -22,18 +59,14 @@ module axi4stream_vip_0_exdes_tb();
 
   // Declare variables for the TX task
   bit[15:0] test_data[];
-  axi4stream_transaction wr_transaction;
 
   // Declare variables for the RX task  
   bit[15:0] received_data[];
   int num_received;
-  axi4stream_transaction rd_transaction;
 
 
   //instantiate DUT
-  design_1_wrapper DUT(
-    .clock(clock),
-    .reset(reset)
+  mpsoc_preset_wrapper DUT(
   );
 
   //generate clock
@@ -41,56 +74,115 @@ module axi4stream_vip_0_exdes_tb();
 
 
 
-/****************************************************************************************************************
- Task send_a_packet sends a packet with data from an input array of 16-bit words.
- The final beat has Tlast set to 1.
- This task is used with AXI4STREAM VIP configured to have TLAST and TDATA WIDTH = 16 bits (2 bytes)
-***************************************************************************************************************/
-task automatic send_a_packet(
-  input bit[15:0] data_array[],
-  input int num_elements,
-  input axi4stream_transaction wr_transaction
+
+  // ============================================================
+  // AXI DMA Direct Register Mode Tasks
+  // Using parameterized register offsets
+  // ============================================================
+
+// =========================================================
+// TASK: AXI DMA Register Write
+// =========================================================
+task automatic dma_reg_write(
+    input  logic [31:0] addr,
+    input  logic [31:0] data
 );
-  bit[2*8-1:0] data_beat;
-  bit[2-1:0] keep_beat;  // 2 bits for 2 bytes
-  
-  // Validate input
-  if(num_elements <= 0) begin
-    $display("Error: num_elements must be greater than 0");
-    return;
-  end
-  
-  if(num_elements > data_array.size()) begin
-    $display("Error: num_elements (%0d) exceeds data_array size (%0d)", num_elements, data_array.size());
-    return;
-  end
-  
-  for(int i=0; i<num_elements; i++) begin
-    // Get the 16-bit data directly from the array
-    data_beat = data_array[i];
-    keep_beat = 2'b11;  // Both bytes are valid
-    
-    // Create and configure transaction
-    wr_transaction = mst_agent.driver.create_transaction("Master VIP write transaction");
-    SEND_PACKET_FAILURE: assert(wr_transaction.randomize());
-    
-    wr_transaction.set_data_beat(data_beat);
-    wr_transaction.set_keep_beat(keep_beat);  // Set TKEEP to 0b11
-    
-    // Set TLAST on final beat
-    if(i == num_elements-1) begin
-      wr_transaction.set_last(1);  
-    end else begin
-      wr_transaction.set_last(0);
+    begin
+        reg resp;
+        tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_data(addr,4,data,resp);
+        $display("[%0t] DMA WRITE  addr=0x%08h  data=0x%08h  resp=%0d",$time, addr, data, resp);
     end
+endtask
+
+// =========================================================
+// TASK: AXI DMA Register Read
+// =========================================================
+task automatic dma_reg_read(
+    input  logic [31:0] addr,
+    output logic [31:0] data
+);
+    begin
+        reg resp;
+        tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_data(addr,4,data,resp);
+        $display("[%0t] DMA READ   addr=0x%08h  data=0x%08h  resp=%0d", $time, addr, data, resp);
+    end
+endtask
+
+  
+  //  Programming Sequence (Direct Register Mode)
+  
+  
+  //  S2MM (Stream → Memory)
+  //  1. Write S2MM_DMACR = 0x1        (RS=1)
+  //  2. Write S2MM_DA = dest_addr
+  //  3. Write S2MM_LENGTH = N_bytes   (waits for AXIS data)
+  //  4. Poll S2MM_DMASR.Idle == 1 
+  
+  
+  
+  //  MM2S (Memory → Stream)    
+  
+  //  1. Write MM2S_DMACR = 0x1        (RS=1)
+  //  2. Write MM2S_SA = source_addr
+  //  3. Write MM2S_LENGTH = N_bytes   (starts transfer)
+  //  4. Poll MM2S_DMASR.Idle == 1
+
+
+// -------------------------------------------------------------
+// MM2S Transfer (Memory → Stream)
+// -------------------------------------------------------------
+task automatic dma_mm2s_transfer(
+    input logic [31:0] base,
+    input logic [31:0] src_addr,
+    input logic [31:0] length
+);
+    logic [31:0] status;
     
-    // Send transaction
-    mst_agent.driver.send(wr_transaction);
-  end
-  
-  $display("Sent packet with %0d beats", num_elements);
-endtask : send_a_packet
-  
+    // 1. Program source address
+    dma_reg_write(base + MM2S_SA, src_addr);
+
+    // 2. Enable DMA channel (Run/Stop = 1)
+    dma_reg_write(base + MM2S_DMACR, 32'h0000_0001);
+
+    // 3. Writing length starts the transfer
+    dma_reg_write(base + MM2S_LENGTH, length);
+
+    // 4. Wait for Idle = 1
+    do begin
+        dma_reg_read(base + MM2S_DMASR, status);
+    end while (status[1] == 1'b0);  // bit 1 = Idle
+endtask
+
+
+
+// -------------------------------------------------------------
+// S2MM Transfer (Stream → Memory)
+// -------------------------------------------------------------
+task automatic dma_s2mm_transfer(
+    input logic [31:0] base,
+    input logic [31:0] dst_addr,
+    input logic [31:0] length
+);
+    logic [31:0] status;   
+    reg resp;
+    
+    // 1. Program destination address
+    dma_reg_write(base + S2MM_DA, dst_addr);
+
+    // 2. Start DMA channel (Run/Stop = 1)
+    dma_reg_write(base + S2MM_DMACR, 32'h0000_0001);
+
+    // 3. Writing LENGTH starts receiver
+    dma_reg_write(base + S2MM_LENGTH, length);
+
+    // 4. Wait for Idle = 1
+    do begin
+        dma_reg_read(base + S2MM_DMASR, status);
+    end while (status[1] == 1'b0);  // bit 1 = Idle
+endtask
+
+
+
 
 /****************************************************************************************************************
  Task generate_sine_wave generates a sine wave matching ap_fixed<16,4> format used in HLS.
@@ -147,78 +239,6 @@ task automatic generate_sine_wave(
            num_samples, amplitude, frequency);
 endtask : generate_sine_wave
 
-
-
-/****************************************************************************************************************
- Task receive_packet_blocking reads data from the slave VIP monitor and stores it in an output array.
- This task blocks until data arrives - use when you're confident the DUT will produce output.
- 
- Parameters:
-   max_elements    - Maximum number of elements to read (prevents runaway on missing TLAST)
-   data_array      - Output array populated with received data (sized to actual received count)
-   elements_read   - Output count of how many elements were actually received
-   rd_transaction  - Pre-declared transaction object for receiving monitor data
-   
- The task reads until TLAST is detected or max_elements is reached.
- Each transaction is read from the slave VIP's monitor using a blocking get() call.
- 
- Usage Example:
-   bit[15:0] rx_data[];
-   int count;
-   axi4stream_transaction rd_transaction;
-   receive_packet_blocking(10000, rx_data, count, rd_transaction);
-   $display("Received %0d samples", count);
-***************************************************************************************************************/
-task automatic receive_packet_blocking(
-  input int max_elements,
-  output bit[15:0] data_array[],
-  output int elements_read,
-  input axi4stream_transaction rd_transaction
-);
-  bit[15:0] temp_data[];
-  bit packet_complete = 0;
-  
-  // Validate input
-  if(max_elements <= 0) begin
-    $display("Error: max_elements must be greater than 0");
-    elements_read = 0;
-    return;
-  end
-  
-  // Allocate temporary array
-  temp_data = new[max_elements];
-  elements_read = 0;
-  
-  $display("Waiting to receive packet (max %0d elements)...", max_elements);
-  
-  // Read data from slave VIP monitor
-  while(!packet_complete && elements_read < max_elements) begin
-    // Blocking get - waits for transaction
-    slv_agent.monitor.item_collected_port.get(rd_transaction);
-    
-    // Store data
-    temp_data[elements_read] = rd_transaction.get_data_beat();
-    elements_read++;
-    
-    // Check for TLAST
-    if(rd_transaction.get_last() == 1) begin
-      packet_complete = 1;
-      $display("Received complete packet: %0d elements (TLAST detected)", elements_read);
-    end
-  end
-  
-  // Check if we hit max without TLAST
-  if(!packet_complete && elements_read >= max_elements) begin
-    $display("Warning: Reached max_elements (%0d) without detecting TLAST", max_elements);
-  end
-  
-  // Copy to sized output array
-  data_array = new[elements_read];
-  for(int i = 0; i < elements_read; i++) begin
-    data_array[i] = temp_data[i];
-  end
-  
-endtask : receive_packet_blocking
 
 
 /****************************************************************************************************************
@@ -400,15 +420,26 @@ initial begin
   // Initialize signals
   reset = 0;
   
+  //Reset MPSoC and PL  
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
+  repeat(20) @(posedge clock);
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b0);
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.fpga_soft_reset(32'h1);
+  repeat(20) @(posedge clock);
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.fpga_soft_reset(32'h0);
+  #2000 ;  
+  
+  
+  dma_mm2s_transfer(DMA_BASE,RAM_BUFER1,RAM_BUFER_SIZE);  
+
+  
+  dma_s2mm_transfer(DMA_BASE,RAM_BUFER2,RAM_BUFER_SIZE);
+  
+  
+  
   // Wait for some time
   repeat(10) @(posedge clock);
-  
-  // Create agents
-  mst_agent = new("master", DUT.design_1_i.axi4stream_vip_0.inst.IF);
-  slv_agent = new("slave",  DUT.design_1_i.axi4stream_vip_1.inst.IF);
-
-  mst_agent.set_verbosity(0);
-  slv_agent.set_verbosity(0);
   
   // Release reset
   reset = 1;
@@ -416,15 +447,6 @@ initial begin
   
   // Wait for reset to propagate
   repeat(20) @(posedge clock);
-  
-  // Configure slave to be always ready (no backpressure)
-  slv_agent.vif_proxy.set_dummy_drive_type(XIL_AXI4STREAM_VIF_DRIVE_NONE);
-  
-  // Start agents
-  mst_agent.start_master();
-  slv_agent.start_slave();
-  
-  $display("Agents started at time %0t", $time);
   
   // Let agents initialize
   repeat(10) @(posedge clock);
@@ -441,9 +463,6 @@ initial begin
     .data_array(test_data)
   );
   
-  send_a_packet(test_data, num_samples, wr_transaction);
-  receive_packet_blocking(num_samples, received_data, num_received, rd_transaction);
-  save_data_to_file("logfile.txt", received_data, num_received, 0);
   
   #25000;
   $display("Test complete");
