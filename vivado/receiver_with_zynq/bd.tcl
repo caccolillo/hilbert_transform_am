@@ -202,7 +202,10 @@ proc create_root_design { parentCell } {
   # Create instance: axi_dma_0, and set properties
   set axi_dma_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_dma:7.1 axi_dma_0 ]
   set_property -dict [list \
+    CONFIG.c_addr_width {40} \
     CONFIG.c_include_sg {0} \
+    CONFIG.c_m_axi_mm2s_data_width {128} \
+    CONFIG.c_m_axi_s2mm_data_width {128} \
     CONFIG.c_m_axis_mm2s_tdata_width {16} \
   ] $axi_dma_0
 
