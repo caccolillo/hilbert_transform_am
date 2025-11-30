@@ -48,11 +48,13 @@ module tb_receiver_with_zynq;
   parameter RAM_BUFER1 = DMA_BASE + 32'h0000_0000; // start of buffer 1 in DDR
   parameter RAM_BUFER2 = DMA_BASE + 32'h0000_1000; // start of buffer 2 in DDR
   parameter RAM_BUFER_SIZE = 32'h0000_0040;        // 64 bytes
-
+  parameter DDR_MEM = 2'b01;
+  
   bit clock = 0;
   bit reset = 0;
   int num_samples = 10000;
-
+  integer succ;
+  
   // Declare variables for the TX task
   bit[15:0] test_data[];
 
@@ -547,196 +549,316 @@ endtask : save_data_to_file
 /****************************************************************************************************************
  Task generate_am_signal generates an AM modulated signal.
 ***************************************************************************************************************/
+//task automatic generate_am_signal(
+//  input real sample_rate,
+//  input real carrier_freq,
+//  input real message_freq,
+//  input real modulation_index,
+//  input int num_samples,
+//  output bit[15:0] data_array[]
+//);
+//  real pi = 3.14159265358979323846;
+//  real t;
+//  real message;
+//  real carrier;
+//  real am_signal;
+//  real max_env;
+//  real norm;
+//  real scaled_value;
+//  int signed fixed_point_value;
+  
+//  // Validate inputs
+//  if(num_samples <= 0) begin
+//    $display("Error: num_samples must be greater than 0");
+//    return;
+//  end
+  
+//  if(modulation_index < 0 || modulation_index > 1.0) begin
+//    $display("Warning: modulation_index should be between 0 and 1.0");
+//  end
+  
+//  // Calculate normalization factor
+//  max_env = 1.0 + modulation_index;
+//  norm = 1.0 / max_env;
+  
+//  // Allocate array
+//  data_array = new[num_samples];
+  
+//  // Generate AM signal samples
+//  for(int i = 0; i < num_samples; i++) begin
+//    // Calculate time
+//    t = i / sample_rate;
+    
+//    // Generate message signal (cosine wave)
+//    message = $cos(2.0 * pi * message_freq * t);
+    
+//    // Generate carrier signal (cosine wave)
+//    carrier = $cos(2.0 * pi * carrier_freq * t);
+    
+//    // AM modulation
+//    am_signal = (1.0 + modulation_index * message) * carrier * norm;
+    
+//    // Convert to ap_fixed<16,4> format
+//    scaled_value = am_signal * 4096.0;
+//    fixed_point_value = int'(scaled_value);
+//    data_array[i] = fixed_point_value[15:0];
+//  end
+  
+//  $display("Generated %0d AM signal samples:", num_samples);
+//  $display("  Sample Rate: %.1f Hz", sample_rate);
+//  $display("  Carrier Frequency: %.1f Hz", carrier_freq);
+//  $display("  Message Frequency: %.1f Hz", message_freq);
+//  $display("  Modulation Index: %.2f", modulation_index);
+//  $display("  Format: ap_fixed<16,4>");
+  
+//endtask : generate_am_signal
+
 task automatic generate_am_signal(
-  input real sample_rate,
-  input real carrier_freq,
-  input real message_freq,
-  input real modulation_index,
-  input int num_samples,
-  output bit[15:0] data_array[]
+    input real carrier_freq,
+    input real mod_freq,
+    input real modulation_index,
+    input int num_samples,
+    output bit[15:0] data_array[]
 );
-  real pi = 3.14159265358979323846;
-  real t;
-  real message;
-  real carrier;
-  real am_signal;
-  real max_env;
-  real norm;
-  real scaled_value;
-  int signed fixed_point_value;
-  
-  // Validate inputs
-  if(num_samples <= 0) begin
-    $display("Error: num_samples must be greater than 0");
-    return;
-  end
-  
-  if(modulation_index < 0 || modulation_index > 1.0) begin
-    $display("Warning: modulation_index should be between 0 and 1.0");
-  end
-  
-  // Calculate normalization factor
-  max_env = 1.0 + modulation_index;
-  norm = 1.0 / max_env;
-  
-  // Allocate array
-  data_array = new[num_samples];
-  
-  // Generate AM signal samples
-  for(int i = 0; i < num_samples; i++) begin
-    // Calculate time
-    t = i / sample_rate;
-    
-    // Generate message signal (cosine wave)
-    message = $cos(2.0 * pi * message_freq * t);
-    
-    // Generate carrier signal (cosine wave)
-    carrier = $cos(2.0 * pi * carrier_freq * t);
-    
-    // AM modulation
-    am_signal = (1.0 + modulation_index * message) * carrier * norm;
-    
-    // Convert to ap_fixed<16,4> format
-    scaled_value = am_signal * 4096.0;
-    fixed_point_value = int'(scaled_value);
-    data_array[i] = fixed_point_value[15:0];
-  end
-  
-  $display("Generated %0d AM signal samples:", num_samples);
-  $display("  Sample Rate: %.1f Hz", sample_rate);
-  $display("  Carrier Frequency: %.1f Hz", carrier_freq);
-  $display("  Message Frequency: %.1f Hz", message_freq);
-  $display("  Modulation Index: %.2f", modulation_index);
-  $display("  Format: ap_fixed<16,4>");
-  
-endtask : generate_am_signal
+    real pi = 3.141592653589793;
+    real t;
+    real carrier, mod_sig, am_sig;
+    int signed fp;
+    data_array = new[num_samples];
+
+    for(int i=0; i<num_samples; i++) begin
+        t = i;
+
+        // baseband modulation signal (0..1)
+        mod_sig = 0.5 * (1.0 + $sin(2*pi*mod_freq*t));
+
+        // carrier
+        carrier = $sin(2*pi*carrier_freq*t);
+
+        // AM
+        am_sig = (1.0 + modulation_index*mod_sig) * carrier;
+
+        // convert to ap_fixed<16,4>
+        fp = int'(am_sig * 4096.0);
+        data_array[i] = fp[15:0];
+    end
+
+    $display("Generated AM signal: %0d samples", num_samples);
+endtask
+
+task automatic write_mem_am_data(
+    input logic [31:0] start_addr,
+    input bit[15:0] am_data[],
+    input int num_samples
+);
+    int i;
+    int succ;
+    bit [127:0] burst;
+    int num_words;
+
+    num_words = (num_samples + 7)/8;
+
+    $display("[%0t] Writing AM samples via write_mem()...", $time);
+
+    for(i=0; i<num_words; i++) begin
+        burst = 128'h0;
+
+        // pack 8 × 16-bit samples
+        for(int j=0; j<8; j++) begin
+            int idx = i*8 + j;
+            if (idx < num_samples)
+                burst[j*16 +: 16] = am_data[idx];
+        end
+
+        // VIP backdoor write
+        tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_mem(
+            burst,
+            start_addr + i*16,
+            16
+        );
+
+        if (succ != 0)
+            $display("ERROR: write_mem failed at address %08h", start_addr + i*16);
+    end
+
+    $display("[%0t] AM DDR initialisation completed (%0d samples).", 
+             $time, num_samples);
+endtask
+
 
 // ============================================================
 // Main Test Sequence
 // ============================================================
+//initial begin
+//  // Initialize signals
+//  reset = 0;
+  
+//  $display("\n");
+//  $display("================================================================================");
+//  $display("  Zynq UltraScale+ AXI DMA Testbench with AM Demodulator");
+//  $display("================================================================================");
+//  $display("  DMA Base Address: 0x%08h", DMA_BASE);
+//  $display("  Buffer 1 (Source): 0x%08h", RAM_BUFER1);
+//  $display("  Buffer 2 (Dest):   0x%08h", RAM_BUFER2);
+//  $display("  Buffer Size: %0d bytes", RAM_BUFER_SIZE);
+//  $display("  Number of Samples: %0d", num_samples);
+//  $display("================================================================================\n");
+  
+//  //Reset MPSoC and PL  
+//  $display("[%0t] Resetting Zynq MPSoC...", $time);
+//  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
+//  repeat(20) @(posedge clock);
+//  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b0);
+//  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.fpga_soft_reset(32'h1);
+//  repeat(20) @(posedge clock);
+//  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
+//  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.fpga_soft_reset(32'h0);
+//  #2000;
+//  $display("[%0t] Reset sequence complete.\n", $time);
+  
+//  //Initialize DDR memory buffers
+//  $display("[%0t] Initializing DDR memory buffers...", $time);
+//  init_buffer_zero(RAM_BUFER1, RAM_BUFER_SIZE);
+//  init_buffer_zero(RAM_BUFER2, RAM_BUFER_SIZE);
+//  $display("\n[%0t] Buffer initialization complete.\n", $time);
+  
+//  // === OPTIONAL: Test with loopback first ===
+//  // Uncomment this section to test basic DMA functionality without AM demodulator
+//  // This will help isolate if the problem is in the DMA setup or the AM demodulator
+//  /*
+//  $display("\n========== LOOPBACK TEST MODE ===========");
+//  $display("Testing DMA with direct loopback (bypassing AM demodulator)");
+//  $display("If this fails, the problem is in DMA/HP0 configuration");
+//  $display("If this works, the problem is in the AM demodulator");
+//  $display("==========================================\n");
+//  */
+  
+//  // Generate test data
+//  $display("\n=== Test: AM Modulated Signal Generation ===");
+//  generate_am_signal(
+//    .sample_rate(480000.0),
+//    .carrier_freq(100000.0),
+//    .message_freq(1000.0),
+//    .modulation_index(0.6),
+//    .num_samples(num_samples),
+//    .data_array(test_data)
+//  );
+  
+//  // Write test data to RAM_BUFFER1
+//  $display("\n[%0t] Writing test data to DDR memory...", $time);
+//  //write_test_data_to_ddr(RAM_BUFER1, test_data, num_samples);
+  
+//  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_mem(test_data,RAM_BUFER1,num_samples);//,DDR_MEM,succ);
+
+  
+//  $display("[%0t] Test data write complete.\n", $time);
+  
+//  // Wait for some time
+//  repeat(10) @(posedge clock);
+  
+//  // Release reset
+//  reset = 1;
+//  $display("[%0t] Reset released", $time);
+  
+//  // Wait for reset to propagate
+//  repeat(20) @(posedge clock);
+  
+//  // Let agents initialize
+//  repeat(10) @(posedge clock);
+
+//  // Start S2MM FIRST (it must be ready to receive before MM2S sends)
+//  $display("\n[%0t] ========================================", $time);
+//  $display("[%0t] CRITICAL: Starting S2MM FIRST", $time);
+//  $display("[%0t] S2MM must be ready before MM2S sends data!", $time);
+//  $display("[%0t] ========================================\n", $time);
+  
+//  // Step 1: Configure and start S2MM receiver (non-blocking)
+//  dma_s2mm_start(DMA_BASE, RAM_BUFER2, RAM_BUFER_SIZE/2);
+  
+//  // Step 2: Wait for S2MM to be ready
+//  repeat(100) @(posedge clock);
+  
+//  // Step 3: Now start MM2S transmitter
+//  $display("\n[%0t] S2MM ready, now starting MM2S...\n", $time);
+//  dma_mm2s_start(DMA_BASE, RAM_BUFER1, RAM_BUFER_SIZE);
+  
+//  // Step 4: Wait for both to complete in parallel
+//  fork
+//    begin
+//        dma_mm2s_wait_complete(DMA_BASE);
+//    end
+//    begin
+//        dma_s2mm_wait_complete(DMA_BASE);
+//    end
+//  join
+
+//  $display("\n[%0t] Both DMA transfers completed successfully!", $time);
+  
+//  // Read back data from RAM_BUFFER2
+//  $display("\n[%0t] Reading back processed data from DDR...", $time);
+//  read_data_from_ddr(RAM_BUFER2, received_data, num_samples);
+//  num_received = num_samples;
+  
+//  // Save received data to file
+//  $display("\n[%0t] Saving received data to file...", $time);
+//  save_data_to_file("received_data.txt", received_data, num_received, 1);
+  
+//  // Wait for some additional time
+//  repeat(100) @(posedge clock);
+  
+//  $display("\n");
+//  $display("================================================================================");
+//  $display("  Test COMPLETED Successfully!");
+//  $display("================================================================================");
+//  $display("  Total samples processed: %0d", num_received);
+//  $display("  Output file: received_data.txt");
+//  $display("================================================================================\n");
+  
+//  $finish;
+//end
+
 initial begin
-  // Initialize signals
-  reset = 0;
-  
-  $display("\n");
-  $display("================================================================================");
-  $display("  Zynq UltraScale+ AXI DMA Testbench with AM Demodulator");
-  $display("================================================================================");
-  $display("  DMA Base Address: 0x%08h", DMA_BASE);
-  $display("  Buffer 1 (Source): 0x%08h", RAM_BUFER1);
-  $display("  Buffer 2 (Dest):   0x%08h", RAM_BUFER2);
-  $display("  Buffer Size: %0d bytes", RAM_BUFER_SIZE);
-  $display("  Number of Samples: %0d", num_samples);
-  $display("================================================================================\n");
-  
-  //Reset MPSoC and PL  
-  $display("[%0t] Resetting Zynq MPSoC...", $time);
-  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
-  repeat(20) @(posedge clock);
-  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b0);
-  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.fpga_soft_reset(32'h1);
-  repeat(20) @(posedge clock);
-  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
-  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.fpga_soft_reset(32'h0);
-  #2000;
-  $display("[%0t] Reset sequence complete.\n", $time);
-  
-  //Initialize DDR memory buffers
-  $display("[%0t] Initializing DDR memory buffers...", $time);
-  init_buffer_zero(RAM_BUFER1, RAM_BUFER_SIZE);
-  init_buffer_zero(RAM_BUFER2, RAM_BUFER_SIZE);
-  $display("\n[%0t] Buffer initialization complete.\n", $time);
-  
-  // === OPTIONAL: Test with loopback first ===
-  // Uncomment this section to test basic DMA functionality without AM demodulator
-  // This will help isolate if the problem is in the DMA setup or the AM demodulator
-  /*
-  $display("\n========== LOOPBACK TEST MODE ===========");
-  $display("Testing DMA with direct loopback (bypassing AM demodulator)");
-  $display("If this fails, the problem is in DMA/HP0 configuration");
-  $display("If this works, the problem is in the AM demodulator");
-  $display("==========================================\n");
-  */
-  
-  // Generate test data
-  $display("\n=== Test: AM Modulated Signal Generation ===");
-  generate_am_signal(
-    .sample_rate(480000.0),
-    .carrier_freq(100000.0),
-    .message_freq(1000.0),
-    .modulation_index(0.6),
-    .num_samples(num_samples),
-    .data_array(test_data)
-  );
-  
-  // Write test data to RAM_BUFFER1
-  $display("\n[%0t] Writing test data to DDR memory...", $time);
-  write_test_data_to_ddr(RAM_BUFER1, test_data, num_samples);
-  $display("[%0t] Test data write complete.\n", $time);
-  
-  // Wait for some time
-  repeat(10) @(posedge clock);
-  
-  // Release reset
-  reset = 1;
-  $display("[%0t] Reset released", $time);
-  
-  // Wait for reset to propagate
-  repeat(20) @(posedge clock);
-  
-  // Let agents initialize
-  repeat(10) @(posedge clock);
+    reset = 1;
+    repeat(10) @(posedge clock);
+    reset = 0;
 
-  // Start S2MM FIRST (it must be ready to receive before MM2S sends)
-  $display("\n[%0t] ========================================", $time);
-  $display("[%0t] CRITICAL: Starting S2MM FIRST", $time);
-  $display("[%0t] S2MM must be ready before MM2S sends data!", $time);
-  $display("[%0t] ========================================\n", $time);
-  
-  // Step 1: Configure and start S2MM receiver (non-blocking)
-  dma_s2mm_start(DMA_BASE, RAM_BUFER2, RAM_BUFER_SIZE/2);
-  
-  // Step 2: Wait for S2MM to be ready
-  repeat(100) @(posedge clock);
-  
-  // Step 3: Now start MM2S transmitter
-  $display("\n[%0t] S2MM ready, now starting MM2S...\n", $time);
-  dma_mm2s_start(DMA_BASE, RAM_BUFER1, RAM_BUFER_SIZE);
-  
-  // Step 4: Wait for both to complete in parallel
-  fork
-    begin
-        dma_mm2s_wait_complete(DMA_BASE);
-    end
-    begin
-        dma_s2mm_wait_complete(DMA_BASE);
-    end
-  join
+    // ============================================================
+    // 1. Generate AM-modulated data
+    // ============================================================
+    generate_am_signal(0.02,0.001,0.8,num_samples,test_data);
 
-  $display("\n[%0t] Both DMA transfers completed successfully!", $time);
-  
-  // Read back data from RAM_BUFFER2
-  $display("\n[%0t] Reading back processed data from DDR...", $time);
-  read_data_from_ddr(RAM_BUFER2, received_data, num_samples);
-  num_received = num_samples;
-  
-  // Save received data to file
-  $display("\n[%0t] Saving received data to file...", $time);
-  save_data_to_file("received_data.txt", received_data, num_received, 1);
-  
-  // Wait for some additional time
-  repeat(100) @(posedge clock);
-  
-  $display("\n");
-  $display("================================================================================");
-  $display("  Test COMPLETED Successfully!");
-  $display("================================================================================");
-  $display("  Total samples processed: %0d", num_received);
-  $display("  Output file: received_data.txt");
-  $display("================================================================================\n");
-  
-  $finish;
+    // ============================================================
+    // 2. Load into DDR using write_mem()
+    // ============================================================
+    write_mem_am_data(RAM_BUFER1, test_data, num_samples);
+
+    // ============================================================
+    // 3. Configure S2MM Receiver (before TX!)
+    // ============================================================
+    dma_s2mm_start(DMA_BASE, RAM_BUFER2, num_samples*2);
+
+    // ============================================================
+    // 4. Configure MM2S Transmitter
+    // ============================================================
+    dma_mm2s_start(DMA_BASE, RAM_BUFER1, num_samples*2);
+
+    // ============================================================
+    // 5. Wait for completion
+    // ============================================================
+    dma_mm2s_wait_complete(DMA_BASE);
+    dma_s2mm_wait_complete(DMA_BASE);
+
+    // ============================================================
+    // 6. Read back received data
+    // ============================================================
+    read_data_from_ddr(RAM_BUFER2, received_data, num_samples);
+
+    // save to file
+    save_data_to_file("received_am_data.txt", received_data, num_samples, 1);
+
+    $finish;
 end
+
 
 // ============================================================
 // Clock Monitor (optional - helps debug hangs)
