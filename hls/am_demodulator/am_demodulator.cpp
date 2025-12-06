@@ -142,29 +142,45 @@ data_type mean(downsample_out_t x) {
     return y;
 }
 
-downsample_out_t downsampler(data_type filter_in) {
+downsample_out_t downsampler(data_type filter_in, bool tlast_in, bool &tlast_out) {
     static int count = 0;
     static data_type sample = 0;
+    static bool tlast_delayed = false;
 
     downsample_out_t out;
     out.valid = false;
-
+    tlast_out = false;
     if (count == 0) {
         sample = filter_in;
+        tlast_delayed = tlast_in;
         out.valid = true;       // new valid output
+        tlast_out = tlast_delayed;  // propagate tlast only on valid samples
     }
-
     out.sample = sample;
-
     count++;
     if (count >= DOWNSAMPLE_FACTOR) {
         count = 0;
     }
-
     return out;
 }
 
+bool delay_tlast(bool tlast_in) {
+    const int TOTAL_DELAY = 16 + FILTER_LENGTH; // Match delay_line + filter1 latency
+    static bool tlast_buffer[TOTAL_DELAY] = {false};
+    static int index = 0;
 
+    // Get the delayed tlast (oldest value in buffer)
+    bool output = tlast_buffer[index];
+
+
+    // Store new tlast
+    tlast_buffer[index] = tlast_in;
+
+    // Update circular buffer index
+    index = (index + 1) % TOTAL_DELAY;
+
+    return output;
+}
 
 void am_demodulator(hls::stream<axis_data> &input_stream,
                     hls::stream<axis_data> &output_stream) {
@@ -204,6 +220,8 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
 
 
     // Processing pipeline
+    bool tlast_delayed = false;
+    bool tlast_final = false;
     data_type delayed_signal = 0.0;
     data_type hilbert_signal = 0.0;
     data_type envelope = 0.0;
@@ -216,6 +234,9 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
     const data_type gain3 = 1.0E+00;
 
     filter_in = filter_in * gain1 * gain2;
+
+    // Delay tlast to match processing latency
+    tlast_delayed = delay_tlast(input_packet.last);
 
     // Step 1: Delay input by 16 samples
     delayed_signal = delay_line(filter_in);
@@ -231,8 +252,8 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
     filtered_envelope = applyIIRFilter(envelope);
     filtered_envelope *= gain2;
 
-    // Step 5: Downsample the smoothed envelope
-    downsampled_output = downsampler(filtered_envelope);
+    // Step 5: Downsample the smoothed envelope (and handle tlast)
+    downsampled_output = downsampler(filtered_envelope, tlast_delayed, tlast_final);
 
     // Step 6: Compute mean
     mean_val = mean(downsampled_output);
@@ -243,14 +264,14 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
 
 
     // =============================================================================
-    // FIXED: Pack the output data into the stream using reinterpret_cast.
+    // Pack the output data into the stream using reinterpret_cast.
     // A direct assignment `output_packet.data = final_output;` would truncate
     // the fixed-point value to an integer, losing all fractional precision.
     // =============================================================================
     output_packet.data = *reinterpret_cast<ap_int<DataWordSize>*>(&final_output);
 
     output_packet.keep = -1; // All bytes valid
-    output_packet.last = input_packet.last;
+    output_packet.last = tlast_final; // Use the properly delayed and downsampled tlast
 
     // Write to output stream
     output_stream.write(output_packet);
