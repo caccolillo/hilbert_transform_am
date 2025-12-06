@@ -11,6 +11,9 @@
 #include "ap_axi_sdata.h"
 
 #define FILTER_LENGTH 32
+#define DOWNSAMPLE_FACTOR 15
+
+
 
 // Data format
 const int DataWordSize = 16;
@@ -92,16 +95,23 @@ static const coeff_type coeffs[FILTER_LENGTH] = {
      3.0838958070072532E-03   // coeff32
 };
 
+
+// Downsampler output data type definition
+typedef struct {
+    data_type sample;
+    bool valid;
+} downsample_out_t;
+
 // Function prototypes
-data_type mean(data_type filter_in);
+downsample_out_t downsampler(data_type filter_in);
+data_type mean(downsample_out_t x);
 data_type delay_line(data_type filter_in);
-data_type downsampler(data_type filter_in);
 data_type envelope_detector(data_type x, data_type h);
 data_type applyIIRFilter(data_type filter_in);
 data_type filter1(data_type input);
 
 // Top-level function with AXI Stream interfaces
-void am_demodulator(hls::stream<axis_data> &input_stream,
-                    hls::stream<axis_data> &output_stream);
+void am_demodulator(hls::stream<axis_data> &input_stream,hls::stream<axis_data> &output_stream);
+
 
 #endif // AM_DEMODULATOR_HPP

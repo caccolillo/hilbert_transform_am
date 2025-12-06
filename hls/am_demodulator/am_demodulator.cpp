@@ -19,21 +19,6 @@ data_type delay_line(data_type filter_in) {
     return output;
 }
 
-data_type downsampler(data_type filter_in) {
-    static int count = 0;
-    static data_type sample = 0;
-    
-    if (count == 0) {
-        sample = filter_in;
-    }
-    
-    count++;
-    if (count >= 15) {
-        count = 0;
-    }
-    
-    return sample;
-}
 
 data_type envelope_detector(data_type x, data_type h) {
 #pragma HLS INLINE off
@@ -131,84 +116,55 @@ data_type filter1(data_type input) {
 
 }
 
-//data_type mean(data_type x) {
-//    static data_type y = 0;
-//    const data_type alpha = 0.0001; // smaller alpha → slower, smoother DC estimate
-//#pragma HLS INLINE off
-//    y = y + alpha * (x - y);
-//    return y;
-//}
-
-//data_type mean(data_type x) {
-//    static data_type y = 0;
-//    const int ALPHA_SHIFT = 12;
-//#pragma HLS INLINE off
-//#pragma HLS RESET variable=y
-//#pragma HLS PIPELINE II=1
-//
-//    data_type error = x - y;
-//    data_type update = error >> ALPHA_SHIFT;
-//    y = y + update;
-//    return y;
-//}
-
-//
-//data_type mean(data_type x) {
-//    static data_type y = 0;
-//    const data_type alpha = 0.0001;
-//#pragma HLS INLINE off
-//#pragma HLS RESET variable=y
-//#pragma HLS PIPELINE II=1
-//
-//    data_type error = x - y;
-//    data_type update = error * alpha;
-//    y = y + update;
-//    return y;
-//}
 
 
-//data_type mean(data_type x) {
-//    static data_type y = 0;
-//    const data_type alpha = 0.0001;
-//    data_type error;
-//    data_type update;
-//#pragma HLS INLINE off
-//#pragma HLS RESET variable=y
-//#pragma HLS PIPELINE II=1
-//
-//
-//
-//#pragma HLS BIND_OP variable=error op=sub impl=dsp
-//#pragma HLS BIND_OP variable=update op=mul impl=dsp
-//#pragma HLS BIND_OP variable=y op=add impl=dsp
-//
-//
-//    error = x - y;
-//    update = error * alpha;
-//    y = y + update;
-//
-//    return y;
-//}
-
-
-data_type mean(data_type x) {
+data_type mean(downsample_out_t x) {
     static data_type y = 0;
     const data_type alpha = 0.001;
 
 #pragma HLS INLINE off
 #pragma HLS RESET variable=y
 #pragma HLS PIPELINE II=1
-    data_type error = x - y;
-    data_type update = error * alpha;
-    // Modern Vitis HLS approach
+
+    data_type error = 0;
+    data_type update = 0;
+
+    if (x.valid) {
+        error = x.sample - y;
+        update = error * alpha;
+
 #pragma HLS RESOURCE variable=update core=DSP48
 #pragma HLS RESOURCE variable=error core=DSP48
 
-
-    y = y + update;
+        y = y + update;
+    }
 
     return y;
 }
+
+downsample_out_t downsampler(data_type filter_in) {
+    static int count = 0;
+    static data_type sample = 0;
+
+    downsample_out_t out;
+    out.valid = false;
+
+    if (count == 0) {
+        sample = filter_in;
+        out.valid = true;       // new valid output
+    }
+
+    out.sample = sample;
+
+    count++;
+    if (count >= DOWNSAMPLE_FACTOR) {
+        count = 0;
+    }
+
+    return out;
+}
+
+
 
 void am_demodulator(hls::stream<axis_data> &input_stream,
                     hls::stream<axis_data> &output_stream) {
@@ -252,7 +208,7 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
     data_type hilbert_signal = 0.0;
     data_type envelope = 0.0;
     data_type filtered_envelope = 0.0;
-    data_type downsampled_output = 0.0;
+    downsample_out_t downsampled_output = {0.0, false};;
     data_type mean_val = 0.0;
     data_type final_output = 0.0;
     const data_type gain1 = 1.0E+00;
@@ -283,7 +239,7 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
     mean_val = mean_val * gain3;
 
     // Step 7: Subtract mean from downsampled output
-    final_output = downsampled_output - mean_val;
+    final_output = downsampled_output.sample - mean_val;
 
 
     // =============================================================================
