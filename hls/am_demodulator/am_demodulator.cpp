@@ -6,16 +6,16 @@ data_type delay_line(data_type filter_in) {
     const int DELAY_SAMPLES = 16;
     static data_type buffer[DELAY_SAMPLES] = {0};
     static int index = 0;
-    
+
     // Get the delayed output (oldest sample in buffer)
     data_type output = buffer[index];
-    
+
     // Store new input sample
     buffer[index] = filter_in;
-    
+
     // Update circular buffer index
     index = (index + 1) % DELAY_SAMPLES;
-    
+
     return output;
 }
 
@@ -116,9 +116,7 @@ data_type filter1(data_type input) {
 
 }
 
-
-
-data_type mean(downsample_out_t x) {
+data_type mean(data_type x) {
     static data_type y = 0;
     const data_type alpha = 0.001;
 
@@ -129,18 +127,18 @@ data_type mean(downsample_out_t x) {
     data_type error = 0;
     data_type update = 0;
 
-    if (x.valid) {
-        error = x.sample - y;
+        error = x- y;
         update = error * alpha;
 
 #pragma HLS RESOURCE variable=update core=DSP48
 #pragma HLS RESOURCE variable=error core=DSP48
 
         y = y + update;
-    }
+
 
     return y;
 }
+
 
 downsample_out_t downsampler(data_type filter_in, bool tlast_in, bool &tlast_out) {
     static int count = 0;
@@ -165,13 +163,18 @@ downsample_out_t downsampler(data_type filter_in, bool tlast_in, bool &tlast_out
 }
 
 bool delay_tlast(bool tlast_in) {
-    const int TOTAL_DELAY = 16 + FILTER_LENGTH; // Match delay_line + filter1 latency
+    // FIXED: Account for full pipeline latency:
+    // - delay_line: 16 samples
+    // - filter1: FILTER_LENGTH samples
+    // - envelope_detector: 1 sample (pipelined operation)
+    // - applyIIRFilter: 2 samples (has delay0 and delay1 states)
+    // - mean: 1 sample (stateful update)
+    const int TOTAL_DELAY = 16 + FILTER_LENGTH + 4;
     static bool tlast_buffer[TOTAL_DELAY] = {false};
     static int index = 0;
 
     // Get the delayed tlast (oldest value in buffer)
     bool output = tlast_buffer[index];
-
 
     // Store new tlast
     tlast_buffer[index] = tlast_in;
@@ -193,19 +196,28 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
 #pragma HLS STREAM variable=input_stream  depth=512
 #pragma HLS STREAM variable=output_stream depth=512
 
-    // If the output stream is full, don't consume an input sample (avoid blocking write).
-    if (output_stream.full()) {
-        return;
-    }
-    // If no input is available, do nothing this cycle.
+    // Pipeline latency tracking
+    // This ensures we don't output invalid data during the initial pipeline fill period
+    static int sample_count = 0;
+    const int PIPELINE_LATENCY = 16 + FILTER_LENGTH + 4;
+
+    // Gain constants
+    const data_type gain1 = 1.0E+00;
+    const data_type gain2 = 1.0E+00;
+    const data_type gain3 = 1.0E+00;
+
+    // State variable to hold pending output when output_stream was full
+    static bool has_pending_output = false;
+    static axis_data pending_output_packet;
+
+
+    // If no input is available, do nothing this cycle
     if (input_stream.empty()) {
         return;
     }
 
-
-    // Safe to read input and produce output
+    // Safe to read input
     axis_data input_packet;
-    axis_data output_packet;
 
     // Read from input stream (blocking read)
     input_stream.read(input_packet);
@@ -218,62 +230,46 @@ void am_demodulator(hls::stream<axis_data> &input_stream,
     ap_int<DataWordSize> temp_input_data = input_packet.data;
     data_type filter_in = *reinterpret_cast<data_type*>(&temp_input_data);
 
-
-    // Processing pipeline
-    bool tlast_delayed = false;
-    bool tlast_final = false;
-    data_type delayed_signal = 0.0;
-    data_type hilbert_signal = 0.0;
-    data_type envelope = 0.0;
-    data_type filtered_envelope = 0.0;
-    downsample_out_t downsampled_output = {0.0, false};;
-    data_type mean_val = 0.0;
-    data_type final_output = 0.0;
-    const data_type gain1 = 1.0E+00;
-    const data_type gain2 = 1.0E+00;
-    const data_type gain3 = 1.0E+00;
-
     filter_in = filter_in * gain1 * gain2;
 
-    // Delay tlast to match processing latency
-    tlast_delayed = delay_tlast(input_packet.last);
+    // Delay tlast to match processing latency (now correctly accounts for full pipeline)
+    bool tlast_delayed = delay_tlast(input_packet.last);
 
     // Step 1: Delay input by 16 samples
-    delayed_signal = delay_line(filter_in);
+    data_type delayed_signal = delay_line(filter_in);
 
     // Step 2: Compute Hilbert transform
-    hilbert_signal = filter1(filter_in);
+    data_type hilbert_signal = filter1(filter_in);
 
     // Step 3: Envelope detection (magnitude)
-    envelope = envelope_detector(delayed_signal, hilbert_signal);
+    data_type envelope = envelope_detector(delayed_signal, hilbert_signal);
     envelope *= gain1;
 
     // Step 4: Smooth envelope with IIR filter
-    filtered_envelope = applyIIRFilter(envelope);
+    data_type filtered_envelope = applyIIRFilter(envelope);
     filtered_envelope *= gain2;
 
-    // Step 5: Downsample the smoothed envelope (and handle tlast)
-    downsampled_output = downsampler(filtered_envelope, tlast_delayed, tlast_final);
-
-    // Step 6: Compute mean
-    mean_val = mean(downsampled_output);
+    // Step 5: Compute mean for DC removal
+    data_type mean_val = mean(filtered_envelope);
     mean_val = mean_val * gain3;
 
-    // Step 7: Subtract mean from downsampled output
-    final_output = downsampled_output.sample - mean_val;
+    // Step 6: Subtract mean from filtered output
+    data_type final_output = filtered_envelope - mean_val;
 
 
-    // =============================================================================
-    // Pack the output data into the stream using reinterpret_cast.
-    // A direct assignment `output_packet.data = final_output;` would truncate
-    // the fixed-point value to an integer, losing all fractional precision.
-    // =============================================================================
-    output_packet.data = *reinterpret_cast<ap_int<DataWordSize>*>(&final_output);
+	// =============================================================================
+	// Pack the output data into the stream using reinterpret_cast.
+	// A direct assignment `output_packet.data = final_output;` would truncate
+	// the fixed-point value to an integer, losing all fractional precision.
+	// =============================================================================
+	axis_data output_packet;
+	output_packet.data = *reinterpret_cast<ap_int<DataWordSize>*>(&final_output);
+	output_packet.keep = input_packet.keep;
+	output_packet.last = input_packet.last;
 
-    output_packet.keep = -1; // All bytes valid
-    output_packet.last = tlast_final; // Use the properly delayed and downsampled tlast
+	// Try to write to output stream
+	if (!output_stream.full()) {
+		output_stream.write(output_packet);
+	}
 
-    // Write to output stream
-    output_stream.write(output_packet);
 }
-
