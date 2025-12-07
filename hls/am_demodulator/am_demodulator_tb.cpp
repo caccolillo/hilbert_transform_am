@@ -28,221 +28,18 @@
  * - Console output with pass/fail statistics and error metrics
  * - Data files for visualization and further analysis
  */
-//
-//#include "am_demodulator.hpp"
-//#include <iostream>
-//#include <fstream>
-//#include <cmath>
-//#include <vector>
-//
-//#ifndef M_PI
-//#define M_PI 3.14159265358979323846
-//#endif
-//
-//#define INITIAL_DELAY 436
-//
-//// Test parameters
-//const int NUM_SAMPLES = 1000;
-//const float SAMPLE_RATE = 480000.0;  // 480 kHz sampling rate
-//const float CARRIER_FREQ = 100000.0; // 100 kHz carrier
-//const float MESSAGE_FREQ = 1000.0;   // 1 kHz message signal
-//const float MODULATION_INDEX = 0.8;  // 80% modulation depth
-//
-//int main() {
-//    std::cout << "========================================" << std::endl;
-//    std::cout << "AM Demodulator Testbench (AXI Stream)" << std::endl;
-//    std::cout << "========================================" << std::endl;
-//    std::cout << "Sample Rate: " << SAMPLE_RATE << " Hz" << std::endl;
-//    std::cout << "Carrier Frequency: " << CARRIER_FREQ << " Hz" << std::endl;
-//    std::cout << "Message Frequency: " << MESSAGE_FREQ << " Hz" << std::endl;
-//    std::cout << "Modulation Index: " << MODULATION_INDEX << std::endl;
-//    std::cout << "Number of Samples: " << NUM_SAMPLES << std::endl;
-//
-//    // Calculate normalization factor to keep signal in range [-1, 1]
-//    float max_envelope = 1.0 + MODULATION_INDEX;  // Maximum envelope value
-//    float normalization_factor = 1.0 / max_envelope;
-//    std::cout << "Normalization Factor: " << normalization_factor << std::endl;
-//    std::cout << "Signal Range: [-" << max_envelope * normalization_factor
-//              << ", " << max_envelope * normalization_factor << "]" << std::endl;
-//    std::cout << "========================================" << std::endl;
-//
-//    // Create AXI Stream instances
-//    hls::stream<axis_data> input_stream("input_stream");
-//    hls::stream<axis_data> output_stream("output_stream");
-//
-//    // Buffer to store output samples
-//    std::vector<float> output_buffer;
-//    output_buffer.reserve(NUM_SAMPLES);
-//
-//    // Open output files for analysis
-//    std::ofstream input_file("am_input.dat");
-//    std::ofstream output_file("am_output.dat");
-//    std::ofstream message_file("message_signal.dat");
-//
-//    if (!input_file.is_open() || !output_file.is_open() || !message_file.is_open()) {
-//        std::cerr << "Error: Could not open output files!" << std::endl;
-//        return -1;
-//    }
-//
-//    // Test counters
-//    int test_passed = 0;
-//    int test_failed = 0;
-//    float max_error = 0.0;
-//    float sum_squared_error = 0.0;
-//
-//    std::cout << "\nGenerating AM signal and processing..." << std::endl;
-//
-//    // Generate and send all input samples to the stream
-//    for (int i = 0; i < NUM_SAMPLES; i++) {
-//        float t = (float)i / SAMPLE_RATE;
-//
-//        // Generate message signal (baseband)
-//        float message = cos(2.0 * M_PI * MESSAGE_FREQ * t);
-//
-//        // Generate AM modulated signal: s(t) = (1 + m*message(t)) * cos(2*pi*fc*t)
-//        // Normalize to keep signal in range [-1, 1]
-//        float am_signal = (1.0 + MODULATION_INDEX * message) * cos(2.0 * M_PI * CARRIER_FREQ * t) * normalization_factor;
-//
-//        // Convert to fixed-point
-//        data_type input_sample = am_signal;
-//
-//        // Create AXI Stream packet
-//        axis_data input_packet;
-//
-//        // The .to_ap_int() method performs a numerical conversion (truncation), losing
-//        // the fractional part. The correct way is to reinterpret the bits of the ap_fixed
-//        // type as an ap_int to preserve the full precision across the AXI stream.
-//        input_packet.data = *reinterpret_cast<ap_int<DataWordSize>*>(&input_sample);
-//
-//        input_packet.keep = -1;  // All bytes valid
-//        input_packet.last = (i == NUM_SAMPLES - 1) ? 1 : 0;  // Mark last sample
-//
-//        // Write to input stream
-//        input_stream.write(input_packet);
-//
-//
-//        // Write input and message to files immediately
-//        input_file << i << " " << am_signal << std::endl;
-//        message_file << i << " " << message * MODULATION_INDEX * normalization_factor << std::endl;
-//
-//
-//        // Call the demodulator (processes one sample per call)
-//        am_demodulator(input_stream, output_stream);
-//
-//        // Progress indicator
-//        if ((i + 1) % 1000 == 0) {
-//            std::cout << "  Processed " << (i + 1) << " samples..." << std::endl;
-//        }
-//
-//        if (!output_stream.empty()) {
-//            axis_data output_packet;
-//            output_stream.read(output_packet);
-//
-//            // To correctly convert from the AXI stream payload back to ap_fixed,
-//            // we must reinterpret the raw ap_int bits as a data_type (ap_fixed),
-//            // which is the reverse of the packing operation. A direct cast is a numerical
-//            // conversion and will result in incorrect values.
-//            ap_int<DataWordSize> temp_output_data = output_packet.data;
-//            data_type output_sample = *reinterpret_cast<data_type*>(&temp_output_data);
-//
-//            #ifdef DEBUG
-//              float output_float = output_sample;
-//            #else
-//              float output_float = output_sample.to_float();
-//            #endif
-//
-//            // Store output in buffer
-//            output_buffer.push_back(output_float);
-//
-//            // Error checking (skip initial transient - first 500 samples)
-//            if (i > 500) {
-//                float t = (float)i / SAMPLE_RATE;
-//                float message = cos(2.0 * M_PI * MESSAGE_FREQ * t);
-//                float expected = message * MODULATION_INDEX * normalization_factor;
-//                float error = fabs(output_float - expected);
-//
-//                if (error > max_error) {
-//                    max_error = error;
-//                }
-//                sum_squared_error += error * error;
-//
-//                // Check if output is within reasonable bounds
-//                if (error < 0.3) {  // Tolerance for demodulation error
-//                    test_passed++;
-//                } else {
-//                    test_failed++;
-//                }
-//            }
-//        } else {
-//            std::cerr << "Warning: Output stream empty at sample " << i << std::endl;
-//            output_buffer.push_back(0.0);
-//        }
-//    }
-//
-//    // Write output with INITIAL_DELAY-sample delay (prepend INITIAL_DELAY zeros, skip last INITIAL_DELAY samples)
-//    for (int i = 0; i < INITIAL_DELAY; i++) {
-//        output_file << i << " " << 0.0 << std::endl;
-//    }
-//    for (int i = 0; i < NUM_SAMPLES - INITIAL_DELAY; i++) {
-//        output_file << (i + INITIAL_DELAY) << " " << output_buffer[i] << std::endl;
-//    }
-//
-//    // Close files
-//    input_file.close();
-//    output_file.close();
-//    message_file.close();
-//
-//    // Calculate statistics
-//    int total_checked = test_passed + test_failed;
-//    float mse = (total_checked > 0) ? (sum_squared_error / total_checked) : 0.0;
-//    float rmse = sqrt(mse);
-//
-//    // Print results
-//    std::cout << "\n========================================" << std::endl;
-//    std::cout << "Test Results:" << std::endl;
-//    std::cout << "========================================" << std::endl;
-//    std::cout << "Samples checked: " << total_checked << std::endl;
-//    if (total_checked > 0) {
-//        std::cout << "Passed: " << test_passed << " ("
-//                  << (100.0 * test_passed / total_checked) << "%)" << std::endl;
-//        std::cout << "Failed: " << test_failed << " ("
-//                  << (100.0 * test_failed / total_checked) << "%)" << std::endl;
-//    }
-//    std::cout << "Maximum Error: " << max_error << std::endl;
-//    std::cout << "RMSE: " << rmse << std::endl;
-//    std::cout << "========================================" << std::endl;
-//
-//    // Determine overall pass/fail
-//    bool overall_pass = (total_checked > 0) &&
-//                        (test_failed < total_checked * 0.1) &&
-//                        (max_error < 0.5);
-//
-//    if (overall_pass) {
-//        std::cout << "\n*** TEST PASSED ***" << std::endl;
-//        std::cout << "The AM demodulator is working correctly!" << std::endl;
-//    } else {
-//        std::cout << "\n*** TEST FAILED ***" << std::endl;
-//        std::cout << "The demodulator output has excessive errors." << std::endl;
-//    }
-//
-//    std::cout << "\nOutput files generated:" << std::endl;
-//    std::cout << "  - am_input.dat (input AM signal)" << std::endl;
-//    std::cout << "  - am_output.dat (demodulated output)" << std::endl;
-//    std::cout << "  - message_signal.dat (expected output)" << std::endl;
-//    std::cout << "\nYou can plot these with gnuplot or MATLAB/Python" << std::endl;
-//    std::cout << "Example gnuplot command:" << std::endl;
-//    std::cout << "  plot 'am_output.dat' w l, 'message_signal.dat' w l" << std::endl;
-//
-//    // Run Python plotting script
-//    //system("python3 ./plot_csv.py");
-//
-//    return 0;
-//}
-
 
 
 /*
- * AM Demodulator Testbench (Cycle-stepped AXIS for HLS cosimulation)
+ * Single-sample-per-call AM Demodulator Testbench (AXIS)
+ *
+ * Matches am_demodulator() that consumes one input token per call.
+ * For each input sample:
+ *   - write one AXI-Stream packet
+ *   - call am_demodulator()
+ *   - drain output_stream while available
+ *
+ * Uses bit-preserving pack/unpack (memcpy) to move between data_type and ap_int.
  */
 
 #include "am_demodulator.hpp"
@@ -250,6 +47,7 @@
 #include <fstream>
 #include <cmath>
 #include <vector>
+#include <cstring>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -258,125 +56,208 @@
 #define INITIAL_DELAY 436
 
 // Test parameters
-static const int NUM_SAMPLES = 1000;
-static const float SAMPLE_RATE = 480000.0f;
-static const float CARRIER_FREQ = 100000.0f;
-static const float MESSAGE_FREQ = 1000.0f;
-static const float MODULATION_INDEX = 0.8f;
+const int NUM_SAMPLES = 60000; // increase to 60000 for longer tests
+const float SAMPLE_RATE = 480000.0f;
+const float CARRIER_FREQ = 100000.0f;
+const float MESSAGE_FREQ = 1000.0f;
+const float MODULATION_INDEX = 0.8f;
+
+// Helper: bit-preserving pack/unpack (works for ap_fixed / float / ap_int bit-patterns)
+static inline ap_int<DataWordSize> pack_to_apint(const data_type &v) {
+    ap_int<DataWordSize> out;
+    // Zero whole object to avoid garbage bytes
+    std::memset(&out, 0, sizeof(out));
+    // Copy the minimum number of bytes available (best-effort)
+    size_t n = std::min(sizeof(out), sizeof(v));
+    std::memcpy(&out, &v, n);
+    return out;
+}
+
+static inline data_type unpack_from_apint(const ap_int<DataWordSize> &v) {
+    data_type out;
+    std::memset(&out, 0, sizeof(out));
+    size_t n = std::min(sizeof(out), sizeof(v));
+    std::memcpy(&out, &v, n);
+    return out;
+}
 
 int main() {
+    std::cout << "=== AM demod TB (single-sample-per-call) ===" << std::endl;
+    std::cout << "Samples: " << NUM_SAMPLES << ", Fs: " << SAMPLE_RATE << " Hz" << std::endl;
 
-    std::cout << "========================================\n";
-    std::cout << "AM Demodulator Testbench (AXI Stream)\n";
-    std::cout << "========================================\n";
-    std::cout << "Sample Rate: " << SAMPLE_RATE << " Hz\n";
-    std::cout << "Carrier Frequency: " << CARRIER_FREQ << " Hz\n";
-    std::cout << "Message Frequency: " << MESSAGE_FREQ << " Hz\n";
-    std::cout << "Modulation Index: " << MODULATION_INDEX << "\n";
-    std::cout << "Number of Samples: " << NUM_SAMPLES << "\n\n";
+    float max_env = 1.0f + MODULATION_INDEX;
+    float norm = 1.0f / max_env;
 
-    float max_env = 1.0 + MODULATION_INDEX;
-    float norm = 1.0 / max_env;
-
-    // AXIS streams
     hls::stream<axis_data> input_stream("input_stream");
     hls::stream<axis_data> output_stream("output_stream");
 
-    // File logging
+    std::vector<float> output_buffer; output_buffer.reserve(NUM_SAMPLES / DOWNSAMPLE_FACTOR + 16);
+    std::vector<float> expected_by_input_idx(NUM_SAMPLES);
+
+    // Prepare expected message per input sample (baseband scaled)
+    for (int i=0;i<NUM_SAMPLES;i++){
+        float t = (float)i / SAMPLE_RATE;
+        float message = cosf(2.0f * M_PI * MESSAGE_FREQ * t);
+        expected_by_input_idx[i] = message * MODULATION_INDEX * norm;
+    }
+
     std::ofstream input_file("am_input.dat");
     std::ofstream output_file("am_output.dat");
-    std::ofstream msg_file("message_signal.dat");
+    std::ofstream message_file("message_signal.dat");
 
-    if (!input_file || !output_file || !msg_file) {
-        std::cerr << "ERROR opening output files!\n";
-        return -1;
+    if (!input_file || !output_file || !message_file) {
+        std::cerr << "Error opening output files\n"; return -1;
     }
 
-    // Output buffer (for verification if needed)
-    std::vector<float> output_buffer;
-    output_buffer.reserve(NUM_SAMPLES);
+    int test_passed = 0, test_failed = 0;
+    float max_error = 0.0f; double sum_sq_err = 0.0;
+    int produced_outputs = 0; // counts outputs read (used to align to input indices)
 
-    int samples_written = 0;
-    int output_count = 0;
+    // MAIN LOOP: write one sample, call DUT, drain outputs
+    for (int i = 0; i < NUM_SAMPLES; ++i) {
+        float t = (float)i / SAMPLE_RATE;
+        float message = cosf(2.0f * M_PI * MESSAGE_FREQ * t);
+        float am_signal = (1.0f + MODULATION_INDEX * message) * cosf(2.0f * M_PI * CARRIER_FREQ * t) * norm;
 
-    // Run until:
-    //   all samples have been pushed
-    //   AND all output has been drained
-    //
-    // Provide generous cycle count because your demodulator has:
-    //   - 16-tap delay
-    //   - Hilbert 32-tap
-    //   - envelope detector
-    //   - IIR smoothing
-    //   - downsampler (÷15)
-    //
-    const int MAX_CYCLES = NUM_SAMPLES * 50;  // safe upper bound
+        // pack input
+        data_type in_fixed = static_cast<data_type>(am_signal);
+        axis_data pkt;
+        pkt.data = pack_to_apint(in_fixed);
+        pkt.keep = -1;
+        pkt.last = (i == NUM_SAMPLES-1) ? 1 : 0;
 
-    for (int cycle = 0; cycle < MAX_CYCLES; cycle++) {
+        // write single sample
+        input_stream.write(pkt);
 
-        // -------------------------------------------------------
-        // Write input sample if stream is not full
-        // -------------------------------------------------------
-        if (samples_written < NUM_SAMPLES && !input_stream.full()) {
-            int i = samples_written;
-            float t = (float)i / SAMPLE_RATE;
+        // Save input & expected for plotting
+        input_file << i << " " << am_signal << "\n";
+        message_file << i << " " << expected_by_input_idx[i] << "\n";
 
-            float message = cosf(2.0f * M_PI * MESSAGE_FREQ * t);
-            float am_signal = (1.0f + MODULATION_INDEX * message)
-                                * cosf(2.0f * M_PI * CARRIER_FREQ * t)
-                                * norm;
-
-            // Write logs
-            input_file << i << " " << am_signal << "\n";
-            msg_file   << i << " " << (message * MODULATION_INDEX * norm) << "\n";
-
-            // Create AXIS word
-            axis_data in_pkt;
-            ap_int<DataWordSize> raw = *reinterpret_cast<ap_int<DataWordSize>*>(&am_signal);
-            in_pkt.data = raw;
-            in_pkt.keep = -1;
-            in_pkt.last = (i == NUM_SAMPLES - 1);
-
-            input_stream.write(in_pkt);
-            samples_written++;
-        }
-
-        // -------------------------------------------------------
-        // Advance hardware by one cycle
-        // -------------------------------------------------------
+        // call DUT once (consumes one input token)
         am_demodulator(input_stream, output_stream);
 
-        // -------------------------------------------------------
-        // Read output if available
-        // -------------------------------------------------------
+        // drain any available outputs produced by this (or previous) calls
         while (!output_stream.empty()) {
-            axis_data out_pkt;
-            output_stream.read(out_pkt);
+            axis_data outpkt = output_stream.read();
+            ap_int<DataWordSize> raw = outpkt.data;
+            data_type out_ap = unpack_from_apint(raw);
 
-            ap_int<DataWordSize> raw = out_pkt.data;
-            float out_value = *reinterpret_cast<float*>(&raw);
+            float out_float;
+            #ifdef DEBUG
+                out_float = static_cast<float>(out_ap);
+            #else
+                // If data_type is ap_fixed, prefer .to_float() when available
+                #ifdef HLS_AP_FIXED
+                    out_float = out_ap.to_float();
+                #else
+                    out_float = static_cast<float>(out_ap);
+                #endif
+            #endif
 
-            output_file << output_count << " " << out_value << "\n";
-            output_buffer.push_back(out_value);
+            output_buffer.push_back(out_float);
 
-            output_count++;
+            // Align output to input index:
+            // output number k corresponds to input index = k*DOWNSAMPLE + INITIAL_DELAY
+            int corresponding_input_idx = produced_outputs * DOWNSAMPLE_FACTOR + INITIAL_DELAY;
+
+            if (corresponding_input_idx >= 0 && corresponding_input_idx < NUM_SAMPLES) {
+                float expected = expected_by_input_idx[corresponding_input_idx];
+                float err = fabsf(out_float - expected);
+                if (err > max_error) max_error = err;
+                sum_sq_err += double(err) * double(err);
+                if (err < 0.3f) test_passed++;
+                else test_failed++;
+            } else {
+                // If out-of-range (initial pipeline outputs / tail), skip pass/fail counting
+            }
+
+            ++produced_outputs;
         }
 
-        // Stop early if completely done:
-        if (samples_written >= NUM_SAMPLES && output_stream.empty()) {
-            // Give a few extra cycles for pipeline flush
-            if (cycle > NUM_SAMPLES * 20)
-                break;
+        // optional progress
+        if ((i+1) % 1000 == 0) std::cout << "Processed " << (i+1) << " samples\n";
+    }
+
+    // After main loop, ensure there are no leftover unread items in input_stream
+    if (!input_stream.empty()) {
+        std::cerr << "WARNING: input_stream not empty after main loop! leftover tokens: (should be 0)\n";
+        // Try to flush the DUT until input_stream is empty (safeguard)
+        // This will call the DUT repeatedly with no new inputs; if DUT returns immediately when input empty, no effect.
+        int guard = 0;
+        while (!input_stream.empty() && guard < 10000) {
+            am_demodulator(input_stream, output_stream);
+            // drain outputs if any
+            while (!output_stream.empty()) {
+                axis_data outpkt = output_stream.read();
+                ap_int<DataWordSize> raw = outpkt.data;
+                data_type out_ap = unpack_from_apint(raw);
+                float out_float = static_cast<float>(out_ap);
+                output_buffer.push_back(out_float);
+                ++produced_outputs;
+            }
+            guard++;
+        }
+        if (!input_stream.empty()) {
+            std::cerr << "ERROR: input_stream still contains tokens - DUT didn't consume them.\n";
+        } else {
+            std::cerr << "input_stream drained by guard calls\n";
         }
     }
 
-    std::cout << "Cosimulation testbench finished.\n";
-    std::cout << "Samples written: " << samples_written << "\n";
-    std::cout << "Outputs produced: " << output_count << "\n";
+    // Drain any remaining outputs after all inputs
+    while (!output_stream.empty()) {
+        axis_data outpkt = output_stream.read();
+        ap_int<DataWordSize> raw = outpkt.data;
+        data_type out_ap = unpack_from_apint(raw);
+        float out_float = static_cast<float>(out_ap);
+        output_buffer.push_back(out_float);
+
+        int corresponding_input_idx = produced_outputs * DOWNSAMPLE_FACTOR + INITIAL_DELAY;
+        if (corresponding_input_idx >= 0 && corresponding_input_idx < NUM_SAMPLES) {
+            float expected = expected_by_input_idx[corresponding_input_idx];
+            float err = fabsf(out_float - expected);
+            if (err > max_error) max_error = err;
+            sum_sq_err += double(err)*double(err);
+            if (err < 0.3f) test_passed++; else test_failed++;
+        }
+
+        ++produced_outputs;
+    }
+
+    // Write outputs to file aligned to input indices (prepend INITIAL_DELAY zeros)
+    for (int i = 0; i < INITIAL_DELAY; ++i) {
+        output_file << i << " " << 0.0f << "\n";
+    }
+    for (int k = 0; k < (int)output_buffer.size(); ++k) {
+        int in_idx = k * DOWNSAMPLE_FACTOR + INITIAL_DELAY;
+        output_file << in_idx << " " << output_buffer[k] << "\n";
+    }
 
     input_file.close();
     output_file.close();
-    msg_file.close();
+    message_file.close();
+
+    int total_checked = test_passed + test_failed;
+    float mse = (total_checked > 0) ? float(sum_sq_err / total_checked) : 0.0f;
+    float rmse = sqrtf(mse);
+
+    std::cout << "\n=== RESULTS ===\n";
+    std::cout << "Outputs produced: " << output_buffer.size() << "\n";
+    std::cout << "Checked: " << total_checked << "\n";
+    if (total_checked>0) {
+        std::cout << "Passed: " << test_passed << " (" << (100.0*test_passed/total_checked) << "%)\n";
+        std::cout << "Failed: " << test_failed << " (" << (100.0*test_failed/total_checked) << "%)\n";
+    }
+    std::cout << "Max err: " << max_error << ", RMSE: " << rmse << "\n";
+
+    bool overall_pass = (total_checked>0) && (test_failed < total_checked * 0.1f) && (max_error < 0.5f);
+    if (overall_pass) std::cout << "*** TEST PASSED ***\n";
+    else std::cout << "*** TEST FAILED ***\n";
+
+    std::cout << "Output files: am_input.dat, am_output.dat, message_signal.dat\n";
+
+    // Run Python plotting script
+    system("python3 ./plot_csv.py");
 
     return 0;
 }
