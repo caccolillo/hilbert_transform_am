@@ -2,3 +2,8 @@
 *.log
 *.zip
 *.str
+*.Xil
+*project*
+*.debug
+*xgui*
+*.xml
