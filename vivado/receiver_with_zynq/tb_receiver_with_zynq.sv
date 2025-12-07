@@ -93,6 +93,57 @@ module tb_receiver_with_zynq;
   // ============================================================
 
 // =========================================================
+// TASK: DMA Status Read - Read and display both channel status
+// =========================================================
+task automatic dma_status_read(
+    input logic [31:0] base
+);
+    logic [31:0] s2mm_status;
+    logic [31:0] mm2s_status;
+    begin
+        dma_reg_read(base + S2MM_DMASR, s2mm_status);
+        $display("S2MM status reg: 0x%08h", s2mm_status);
+        
+        dma_reg_read(base + MM2S_DMASR, mm2s_status);
+        $display("MM2S status reg: 0x%08h", mm2s_status);
+    end
+endtask
+
+// =========================================================
+// TASK: Wait for MM2S Channel Idle
+// =========================================================
+task automatic dma_mm2s_idle(
+    input logic [31:0] base
+);
+    logic [31:0] mm2s_status;
+    begin
+        do begin
+            dma_reg_read(base + MM2S_DMASR, mm2s_status);
+        end while (!(mm2s_status & 32'h0000_0002)); // Wait for Idle bit (bit 1)
+        
+        $display("[%0t] MM2S channel is IDLE", $time);
+    end
+endtask
+
+// =========================================================
+// TASK: Wait for S2MM Channel Idle
+// =========================================================
+task automatic dma_s2mm_idle(
+    input logic [31:0] base
+);
+    logic [31:0] s2mm_status;
+    begin
+        do begin
+            dma_reg_read(base + S2MM_DMASR, s2mm_status);
+        end while (!(s2mm_status & 32'h0000_0002)); // Wait for Idle bit (bit 1)
+        
+        $display("[%0t] S2MM channel is IDLE", $time);
+    end
+endtask
+
+
+
+// =========================================================
 // TASK: AXI DMA Register Write
 // =========================================================
 task automatic dma_reg_write(
@@ -484,10 +535,42 @@ initial begin
   $display("DDR read = %08h", read_data);
 
   for (int i = 0; i < 100; i++) begin
-    dma_s2mm_transfer(DMA_BASE,RAM_BUFER2,RAM_BUFER_SIZE);
-    dma_mm2s_transfer(DMA_BASE,RAM_BUFER1,RAM_BUFER_SIZE);  
+  
+    // Reset channels
+    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0004);
+    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0004);
+    
+    // Halt channels
+    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
+    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
+    
+    // Set addresses
+    dma_reg_write(DMA_BASE + MM2S_SA, RAM_BUFER1);
+    dma_reg_write(DMA_BASE + S2MM_DA, RAM_BUFER2);
+    
+    // Enable with interrupts masked (0xf001 = IRQThreshold=0xF, RS=1)
+    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
+    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
+    
+    // Start transfers
+    dma_reg_write(DMA_BASE + S2MM_LENGTH, RAM_BUFER_SIZE);
+    dma_reg_write(DMA_BASE + MM2S_LENGTH, RAM_BUFER_SIZE);
+    
+    $display("Started DMA transfer");
+    dma_status_read(DMA_BASE);
+    
+    // Wait for completion
+    dma_mm2s_idle(DMA_BASE);
+    dma_s2mm_idle(DMA_BASE);
+    
+    $display("DMA transfer completed");
+    dma_status_read(DMA_BASE);  
+  
+  
+//    dma_s2mm_transfer(DMA_BASE,RAM_BUFER2,RAM_BUFER_SIZE);
+//    dma_mm2s_transfer(DMA_BASE,RAM_BUFER1,RAM_BUFER_SIZE);  
     // Wait for some time
-    repeat(4000) @(posedge clock);
+    repeat(400) @(posedge clock);
   end
   
   $display("\n=== Test: AM Modulated Signal Generation ===");
