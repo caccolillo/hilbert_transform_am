@@ -57,7 +57,7 @@ module tb_receiver_with_zynq;
 
   parameter RAM_BUFER1 = 32'h0000_0000;
   parameter RAM_BUFER2 = 32'h0000_9000;
-  parameter RAM_BUFER_SIZE = 32'h0000_0100;
+  parameter RAM_BUFER_SIZE = 32'h0000_0200;
 
 
   logic [31:0] my_data = 32'hDEADBEEF;
@@ -199,9 +199,9 @@ task automatic dma_s2mm_transfer(
     dma_reg_write(base + S2MM_LENGTH, length);
 
     // POLL IDLE
-    do begin
-        dma_reg_read(base + S2MM_DMASR, status);
-    end while (status[1] == 0);
+//    do begin
+//        dma_reg_read(base + S2MM_DMASR, status);
+//    end while (status[1] == 0);
 endtask
 
 
@@ -469,7 +469,7 @@ initial begin
 
 
   
-  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.pre_load_mem(0,32'h0000_0000, 1000000);
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.pre_load_mem(1,32'h0000_0000, 1000000);
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_mem(32'h0000_0000, 4, read_data);
   $display("DDR read = %08h", read_data);
 
@@ -483,27 +483,12 @@ initial begin
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_mem(32'h0000_0000, 4, read_data);
   $display("DDR read = %08h", read_data);
 
-  
-  
-  dma_mm2s_transfer(DMA_BASE,RAM_BUFER1,RAM_BUFER_SIZE);  
-
-  
-  dma_s2mm_transfer(DMA_BASE,RAM_BUFER2,RAM_BUFER_SIZE);
-  
-  
-  
-  // Wait for some time
-  repeat(10) @(posedge clock);
-  
-  // Release reset
-  reset = 1;
-  $display("Reset released at time %0t", $time);
-  
-  // Wait for reset to propagate
-  repeat(20) @(posedge clock);
-  
-  // Let agents initialize
-  repeat(10) @(posedge clock);
+  for (int i = 0; i < 100; i++) begin
+    dma_s2mm_transfer(DMA_BASE,RAM_BUFER2,RAM_BUFER_SIZE);
+    dma_mm2s_transfer(DMA_BASE,RAM_BUFER1,RAM_BUFER_SIZE);  
+    // Wait for some time
+    repeat(4000) @(posedge clock);
+  end
   
   $display("\n=== Test: AM Modulated Signal Generation ===");
   
