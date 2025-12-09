@@ -10,7 +10,7 @@ add_files downsampler.cpp
 add_files -tb downsampler_tb.cpp
 #add_files -tb plot_csv.py
 open_solution -reset "solution1"
-set_part {xc7a100t-csg324-1}
+set_part {xczu3eg-sbva484-1-i}
 create_clock -period 10 -name default
 config_export -format ip_catalog -rtl verilog
 csynth_design
