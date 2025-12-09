@@ -57,8 +57,7 @@ module tb_receiver_with_zynq;
 
   parameter RAM_BUFER1 = 32'h0000_0000;
   parameter RAM_BUFER2 = 32'h0000_9000;
-  parameter RAM_BUFER_SIZE = 32'h0000_0200;
-
+  parameter RAM_BUFER_SIZE = 32'h0000_012C;
 
   logic [31:0] my_data = 32'hDEADBEEF;
 
@@ -170,6 +169,53 @@ task automatic dma_reg_read(
         $display("[%0t] DMA READ   addr=0x%08h  data=0x%08h  resp=%0d", $time, addr, data, resp);
     end
 endtask
+
+
+
+task automatic start_mm2s_dma(
+    input logic [31:0] buffer_addr,
+    input logic [31:0] buffer_size
+);
+begin
+    // Reset MM2S channel
+    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0004);
+
+    // Halt channel
+    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
+
+    // Set destination address (S2MM_DA is odd! but using your original)
+    dma_reg_write(DMA_BASE + S2MM_DA, buffer_addr);
+
+    // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
+    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
+
+    // Start transfers
+    dma_reg_write(DMA_BASE + MM2S_LENGTH, buffer_size);
+end
+endtask
+
+task automatic start_s2mm_dma(
+    input logic [31:0] buffer_addr,
+    input logic [31:0] buffer_size
+);
+begin
+    // Reset S2MM channel
+    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0004);
+
+    // Halt S2MM channel
+    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
+
+    // Set address (you used MM2S_SA - keeping exactly as provided)
+    dma_reg_write(DMA_BASE + MM2S_SA, buffer_addr);
+
+    // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
+    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
+
+    // Start transfers
+    dma_reg_write(DMA_BASE + S2MM_LENGTH, buffer_size);
+end
+endtask
+
 
   
   //  Programming Sequence (Direct Register Mode)
@@ -536,32 +582,44 @@ initial begin
 
   for (int i = 0; i < 100; i++) begin
   
-    // Reset channels
-    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0004);
-    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0004);
+//    //S2MM
+//    // Reset channels
+//    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0004);
+//    // Halt channels
+//    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
+//    // Set addresses
+//    dma_reg_write(DMA_BASE + MM2S_SA, RAM_BUFER1);
+//    // Enable with interrupts masked (0xf001 = IRQThreshold=0xF, RS=1)
+//    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
+//    // Start transfers
+//    dma_reg_write(DMA_BASE + S2MM_LENGTH, RAM_BUFER_SIZE);
+ 
+    start_s2mm_dma(RAM_BUFER1,RAM_BUFER_SIZE); 
     
-    // Halt channels
-    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
-    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
-    
-    // Set addresses
-    dma_reg_write(DMA_BASE + MM2S_SA, RAM_BUFER1);
-    dma_reg_write(DMA_BASE + S2MM_DA, RAM_BUFER2);
-    
-    // Enable with interrupts masked (0xf001 = IRQThreshold=0xF, RS=1)
-    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
-    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
-    
-    // Start transfers
-    dma_reg_write(DMA_BASE + S2MM_LENGTH, RAM_BUFER_SIZE);
-    dma_reg_write(DMA_BASE + MM2S_LENGTH, RAM_BUFER_SIZE);
+
+//    //MM2S
+//    // Reset channels
+//    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0004);
+//    // Halt channels 
+//    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
+//    // Set addresses    
+//    dma_reg_write(DMA_BASE + S2MM_DA, RAM_BUFER2);
+//    // Enable with interrupts masked (0xf001 = IRQThreshold=0xF, RS=1)   
+//    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
+//    // Start transfers
+//    dma_reg_write(DMA_BASE + MM2S_LENGTH, RAM_BUFER_SIZE);
+
+    start_mm2s_dma(RAM_BUFER2,RAM_BUFER_SIZE); 
+
     
     $display("Started DMA transfer");
     dma_status_read(DMA_BASE);
     
-    // Wait for completion
-    dma_mm2s_idle(DMA_BASE);
+
     dma_s2mm_idle(DMA_BASE);
+
+    dma_mm2s_idle(DMA_BASE);
+
     
     $display("DMA transfer completed");
     dma_status_read(DMA_BASE);  
