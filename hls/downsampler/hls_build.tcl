@@ -8,7 +8,7 @@ set_top downsampler
 add_files downsampler.hpp
 add_files downsampler.cpp
 add_files -tb downsampler_tb.cpp
-add_files -tb plot_csv.py
+#add_files -tb plot_csv.py
 open_solution -reset "solution1"
 set_part {xc7a100t-csg324-1}
 create_clock -period 10 -name default
