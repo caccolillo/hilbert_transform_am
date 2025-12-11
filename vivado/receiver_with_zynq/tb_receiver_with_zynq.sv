@@ -57,7 +57,8 @@ module tb_receiver_with_zynq;
 
   parameter RAM_BUFER1 = 32'h0000_0000;
   parameter RAM_BUFER2 = 32'h0000_9000;
-  parameter RAM_BUFER_SIZE = 32'h0000_012C;
+  parameter RAM_BUFER_SIZE1 = 32'h0000_0096;  // MM2S: 150 bytes 
+  parameter RAM_BUFER_SIZE2 = 32'h0000_000a;  // S2MM: 10 bytes 
 
   logic [31:0] my_data = 32'hDEADBEEF;
 
@@ -183,8 +184,8 @@ begin
     // Halt channel
     dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
 
-    // Set destination address (S2MM_DA is odd! but using your original)
-    dma_reg_write(DMA_BASE + S2MM_DA, buffer_addr);
+    // Set address (you used MM2S_SA - keeping exactly as provided)
+    dma_reg_write(DMA_BASE + MM2S_SA, buffer_addr);
 
     // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
     dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
@@ -204,9 +205,9 @@ begin
 
     // Halt S2MM channel
     dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
-
-    // Set address (you used MM2S_SA - keeping exactly as provided)
-    dma_reg_write(DMA_BASE + MM2S_SA, buffer_addr);
+    
+    // Set destination address (S2MM_DA is odd! but using your original)
+    dma_reg_write(DMA_BASE + S2MM_DA, buffer_addr);
 
     // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
     dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
@@ -235,73 +236,6 @@ endtask
   //  2. Write MM2S_SA = source_addr
   //  3. Write MM2S_LENGTH = N_bytes   (starts transfer)
   //  4. Poll MM2S_DMASR.Idle == 1
-
-
-// -------------------------------------------------------------
-// MM2S Transfer (Memory → Stream)
-// -------------------------------------------------------------
-task automatic dma_mm2s_transfer(
-    input logic [31:0] base,
-    input logic [31:0] src_addr,
-    input logic [31:0] length
-);
-    logic [31:0] status;
-
-    // RESET channel
-    dma_reg_write(base + MM2S_DMACR, 32'h0000_0004); // Reset=1
-    do begin
-        dma_reg_read(base + MM2S_DMACR, status);
-    end while(status[2] == 1); // wait reset done
-
-    // ENABLE channel
-    dma_reg_write(base + MM2S_DMACR, 32'h0000_0001); // RS=1
-
-    // ADDRESS
-    dma_reg_write(base + MM2S_SA, src_addr);
-
-    // START
-    dma_reg_write(base + MM2S_LENGTH, length);
-
-    // POLL IDLE
-    do begin
-        dma_reg_read(base + MM2S_DMASR, status);
-    end while (status[1] == 0);
-endtask
-
-
-
-// -------------------------------------------------------------
-// S2MM Transfer (Stream → Memory)
-// -------------------------------------------------------------
-task automatic dma_s2mm_transfer(
-    input logic [31:0] base,
-    input logic [31:0] dst_addr,
-    input logic [31:0] length
-);
-    logic [31:0] status;
-
-    // RESET channel
-    dma_reg_write(base + S2MM_DMACR, 32'h0000_0004); // Reset=1
-    do begin
-        dma_reg_read(base + S2MM_DMACR, status);
-    end while(status[2] == 1);
-
-    // ENABLE channel
-    dma_reg_write(base + S2MM_DMACR, 32'h0000_0001); // RS=1
-
-    // ADDRESS
-    dma_reg_write(base + S2MM_DA, dst_addr);
-
-    // START
-    dma_reg_write(base + S2MM_LENGTH, length);
-
-    // POLL IDLE
-//    do begin
-//        dma_reg_read(base + S2MM_DMASR, status);
-//    end while (status[1] == 0);
-endtask
-
-
 
 
 /****************************************************************************************************************
@@ -359,99 +293,7 @@ task automatic generate_sine_wave(
            num_samples, amplitude, frequency);
 endtask : generate_sine_wave
 
-
-
-/****************************************************************************************************************
- Task save_data_to_file writes received data array to a text file.
- 
- Parameters:
-   filename        - Name of the output file (e.g., "logfile.txt")
-   data_array      - Array of 16-bit data to write
-   num_elements    - Number of elements in the array to write
-   format_type     - Output format: 0=simple hex, 1=detailed, 2=CSV
-   
- Format types:
-   0 - Simple: One hex value per line (0x1234)
-   1 - Detailed: Index, Hex, Signed Decimal, Real value with header
-   2 - CSV: Comma-separated values for import into Excel/MATLAB
-   
- Usage Example:
-   save_data_to_file("logfile.txt", received_data, num_received, 1);
-***************************************************************************************************************/
-task automatic save_data_to_file(
-  input string filename,
-  input bit[15:0] data_array[],
-  input int num_elements,
-  input int format_type = 1
-);
-  integer file_handle;
-  real fixed_point_value;
-  
-  // Validate inputs
-  if(num_elements <= 0) begin
-    $display("Error: num_elements must be greater than 0");
-    return;
-  end
-  
-  if(num_elements > data_array.size()) begin
-    $display("Error: num_elements (%0d) exceeds data_array size (%0d)", num_elements, data_array.size());
-    return;
-  end
-  
-  // Open file for writing
-  file_handle = $fopen(filename, "w");
-  
-  if (file_handle == 0) begin
-    $display("Error: Could not open %s for writing", filename);
-    return;
-  end
-  
-  $display("Writing %0d samples to %s (format type %0d)...", num_elements, filename, format_type);
-  
-  // Write data based on format type
-  case(format_type)
-    0: begin  // Simple hex format
-      for(int i = 0; i < num_elements; i++) begin
-        $fwrite(file_handle, "%04h\n", data_array[i]);
-      end
-    end
-    
-    1: begin  // Detailed format with header
-      $fwrite(file_handle, "# Received AXI Stream Data\n");
-      $fwrite(file_handle, "# Total samples: %0d\n", num_elements);
-      $fwrite(file_handle, "# Format: Index, Hex, Signed Decimal, ap_fixed<16,4> Real Value\n");
-      $fwrite(file_handle, "#\n");
-      
-      for(int i = 0; i < num_elements; i++) begin
-        fixed_point_value = $signed(data_array[i]) / 4096.0;  // Convert from ap_fixed<16,4>
-        $fwrite(file_handle, "%0d, 0x%04h, %0d, %.6f\n", 
-                i, data_array[i], $signed(data_array[i]), fixed_point_value);
-      end
-    end
-    
-    2: begin  // CSV format
-      $fwrite(file_handle, "Index,Hex,Decimal,Real\n");
-      
-      for(int i = 0; i < num_elements; i++) begin
-        fixed_point_value = $signed(data_array[i]) / 4096.0;
-        $fwrite(file_handle, "%0d,0x%04h,%0d,%.6f\n", 
-                i, data_array[i], $signed(data_array[i]), fixed_point_value);
-      end
-    end
-    
-    default: begin
-      $display("Error: Invalid format_type (%0d). Valid options: 0, 1, 2", format_type);
-      $fclose(file_handle);
-      return;
-    end
-  endcase
-  
-  $fclose(file_handle);
-  $display("Successfully wrote %0d samples to %s", num_elements, filename);
-  
-endtask : save_data_to_file
-
-
+//Initialise PL and PL
 task automatic zynq_vip_init(ref bit clock);
 
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
@@ -580,56 +422,36 @@ initial begin
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_mem(32'h0000_0000, 4, read_data);
   $display("DDR read = %08h", read_data);
 
+
+
   for (int i = 0; i < 100; i++) begin
-  
-//    //S2MM
-//    // Reset channels
-//    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0004);
-//    // Halt channels
-//    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
-//    // Set addresses
-//    dma_reg_write(DMA_BASE + MM2S_SA, RAM_BUFER1);
-//    // Enable with interrupts masked (0xf001 = IRQThreshold=0xF, RS=1)
-//    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
-//    // Start transfers
-//    dma_reg_write(DMA_BASE + S2MM_LENGTH, RAM_BUFER_SIZE);
- 
-    start_s2mm_dma(RAM_BUFER1,RAM_BUFER_SIZE); 
-    
+    dma_status_read(DMA_BASE);   
 
-//    //MM2S
-//    // Reset channels
-//    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0004);
-//    // Halt channels 
-//    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
-//    // Set addresses    
-//    dma_reg_write(DMA_BASE + S2MM_DA, RAM_BUFER2);
-//    // Enable with interrupts masked (0xf001 = IRQThreshold=0xF, RS=1)   
-//    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
-//    // Start transfers
-//    dma_reg_write(DMA_BASE + MM2S_LENGTH, RAM_BUFER_SIZE);
-
-    start_mm2s_dma(RAM_BUFER2,RAM_BUFER_SIZE); 
-
-    
     $display("Started DMA transfer");
-    dma_status_read(DMA_BASE);
-    
+    dma_status_read(DMA_BASE);   
 
+    //MM2S transfer start
+    start_mm2s_dma(RAM_BUFER1, RAM_BUFER_SIZE1);
+    //polling on MM2S transfer end
+    dma_mm2s_idle(DMA_BASE);    
+
+
+    // Wait for some time
+    repeat(400) @(posedge clock);
+
+    //S2MM transfer start
+    start_s2mm_dma(RAM_BUFER2, RAM_BUFER_SIZE2);
+    //polling on S2MM transfer end
     dma_s2mm_idle(DMA_BASE);
-
-    dma_mm2s_idle(DMA_BASE);
-
-    
+  
     $display("DMA transfer completed");
     dma_status_read(DMA_BASE);  
   
-  
-//    dma_s2mm_transfer(DMA_BASE,RAM_BUFER2,RAM_BUFER_SIZE);
-//    dma_mm2s_transfer(DMA_BASE,RAM_BUFER1,RAM_BUFER_SIZE);  
     // Wait for some time
-    repeat(400) @(posedge clock);
+    repeat(40) @(posedge clock);
   end
+
+
   
   $display("\n=== Test: AM Modulated Signal Generation ===");
   
