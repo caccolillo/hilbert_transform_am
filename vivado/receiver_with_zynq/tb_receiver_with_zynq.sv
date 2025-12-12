@@ -78,8 +78,7 @@ module tb_receiver_with_zynq;
 
 
   //instantiate DUT
-  mpsoc_preset_wrapper DUT(
-  );
+  mpsoc_preset_wrapper DUT();
 
   //generate clock
   always #10 clock = ~clock;
@@ -92,12 +91,12 @@ module tb_receiver_with_zynq;
   // Using parameterized register offsets
   // ============================================================
 
-// =========================================================
-// TASK: DMA Status Read - Read and display both channel status
-// =========================================================
-task automatic dma_status_read(
+  // =========================================================
+  // TASK: DMA Status Read - Read and display both channel status
+  // =========================================================
+  task automatic dma_status_read(
     input logic [31:0] base
-);
+  );
     logic [31:0] s2mm_status;
     logic [31:0] mm2s_status;
     begin
@@ -107,14 +106,14 @@ task automatic dma_status_read(
         dma_reg_read(base + MM2S_DMASR, mm2s_status);
         $display("MM2S status reg: 0x%08h", mm2s_status);
     end
-endtask
+  endtask
 
-// =========================================================
-// TASK: Wait for MM2S Channel Idle
-// =========================================================
-task automatic dma_mm2s_idle(
+  // =========================================================
+  // TASK: Wait for MM2S Channel Idle
+  // =========================================================
+  task automatic dma_mm2s_idle(
     input logic [31:0] base
-);
+  );
     logic [31:0] mm2s_status;
     begin
         do begin
@@ -123,14 +122,14 @@ task automatic dma_mm2s_idle(
         
         $display("[%0t] MM2S channel is IDLE", $time);
     end
-endtask
+  endtask
 
-// =========================================================
-// TASK: Wait for S2MM Channel Idle
-// =========================================================
-task automatic dma_s2mm_idle(
+  // =========================================================
+  // TASK: Wait for S2MM Channel Idle
+  // =========================================================
+  task automatic dma_s2mm_idle(
     input logic [31:0] base
-);
+  );
     logic [31:0] s2mm_status;
     begin
         do begin
@@ -139,103 +138,97 @@ task automatic dma_s2mm_idle(
         
         $display("[%0t] S2MM channel is IDLE", $time);
     end
-endtask
+  endtask
 
 
 
-// =========================================================
-// TASK: AXI DMA Register Write
-// =========================================================
-task automatic dma_reg_write(
+  // =========================================================
+  // TASK: AXI DMA Register Write
+  // =========================================================
+  task automatic dma_reg_write(
     input  logic [31:0] addr,
     input  logic [31:0] data
-);
+  );
     begin
         reg resp;
         tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_data(addr,4,data,resp);
         $display("[%0t] DMA WRITE  addr=0x%08h  data=0x%08h  resp=%0d",$time, addr, data, resp);
     end
-endtask
+  endtask
 
-// =========================================================
-// TASK: AXI DMA Register Read
-// =========================================================
-task automatic dma_reg_read(
+  // =========================================================
+  // TASK: AXI DMA Register Read
+  // =========================================================
+  task automatic dma_reg_read(
     input  logic [31:0] addr,
     output logic [31:0] data
-);
+  );
     begin
         reg resp;
         tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_data(addr,4,data,resp);
         $display("[%0t] DMA READ   addr=0x%08h  data=0x%08h  resp=%0d", $time, addr, data, resp);
     end
-endtask
+  endtask
 
 
-
-task automatic start_mm2s_dma(
-    input logic [31:0] buffer_addr,
-    input logic [31:0] buffer_size
-);
-begin
-    // Reset MM2S channel
-    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0004);
-
-    // Halt channel
-    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
-
-    // Set address (you used MM2S_SA - keeping exactly as provided)
-    dma_reg_write(DMA_BASE + MM2S_SA, buffer_addr);
-
-    // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
-    dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
-
-    // Start transfers
-    dma_reg_write(DMA_BASE + MM2S_LENGTH, buffer_size);
-end
-endtask
-
-task automatic start_s2mm_dma(
-    input logic [31:0] buffer_addr,
-    input logic [31:0] buffer_size
-);
-begin
-    // Reset S2MM channel
-    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0004);
-
-    // Halt S2MM channel
-    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
-    
-    // Set destination address (S2MM_DA is odd! but using your original)
-    dma_reg_write(DMA_BASE + S2MM_DA, buffer_addr);
-
-    // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
-    dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
-
-    // Start transfers
-    dma_reg_write(DMA_BASE + S2MM_LENGTH, buffer_size);
-end
-endtask
-
-
-  
+  // MM2S DMA programming task
   //  Programming Sequence (Direct Register Mode)
-  
-  
+  //  MM2S (Memory → Stream)    
+  //  1. Write MM2S_DMACR = 0x1        (RS=1)
+  //  2. Write MM2S_SA = source_addr
+  //  3. Write MM2S_LENGTH = N_bytes   (starts transfer)
+  //  4. Poll MM2S_DMASR.Idle == 1    
+  task automatic start_mm2s_dma(
+    input logic [31:0] buffer_addr,
+    input logic [31:0] buffer_size
+  );
+    begin
+      // Reset MM2S channel
+      dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0004);
+
+      // Halt channel
+      dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_0000);
+
+      // Set address (you used MM2S_SA - keeping exactly as provided)
+      dma_reg_write(DMA_BASE + MM2S_SA, buffer_addr);
+
+      // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
+      dma_reg_write(DMA_BASE + MM2S_DMACR, 32'h0000_F001);
+
+      // Start transfers
+      dma_reg_write(DMA_BASE + MM2S_LENGTH, buffer_size);
+    end
+  endtask
+
+
+  // S2MM DMA programming task
+  //  Programming Sequence (Direct Register Mode)
   //  S2MM (Stream → Memory)
   //  1. Write S2MM_DMACR = 0x1        (RS=1)
   //  2. Write S2MM_DA = dest_addr
   //  3. Write S2MM_LENGTH = N_bytes   (waits for AXIS data)
-  //  4. Poll S2MM_DMASR.Idle == 1 
-  
-  
-  
-  //  MM2S (Memory → Stream)    
-  
-  //  1. Write MM2S_DMACR = 0x1        (RS=1)
-  //  2. Write MM2S_SA = source_addr
-  //  3. Write MM2S_LENGTH = N_bytes   (starts transfer)
-  //  4. Poll MM2S_DMASR.Idle == 1
+  //  4. Poll S2MM_DMASR.Idle == 1   
+  task automatic start_s2mm_dma(
+    input logic [31:0] buffer_addr,
+    input logic [31:0] buffer_size
+  );
+    begin
+      // Reset S2MM channel
+      dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0004);
+
+      // Halt S2MM channel
+      dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_0000);
+    
+      // Set destination address (S2MM_DA is odd! but using your original)
+      dma_reg_write(DMA_BASE + S2MM_DA, buffer_addr);
+
+      // Enable with interrupts masked (IRQThreshold=0xF, RS=1)
+      dma_reg_write(DMA_BASE + S2MM_DMACR, 32'h0000_F001);
+
+      // Start transfers
+      dma_reg_write(DMA_BASE + S2MM_LENGTH, buffer_size);
+    end
+  endtask
 
 
 /****************************************************************************************************************
@@ -295,7 +288,6 @@ endtask : generate_sine_wave
 
 //Initialise PL and PL
 task automatic zynq_vip_init(ref bit clock);
-
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b1);
   repeat(20) @(posedge clock);
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.por_srstb_reset(1'b0);
@@ -398,7 +390,58 @@ task automatic generate_am_signal(
   
 endtask : generate_am_signal
 
-////send test data
+
+// -------------------------------------------------------------
+//  Task: write_samples_to_ddr
+//  Packs 16-bit samples into 32-bit words and writes to Zynq MPSoC VIP DDR
+//  Zynq VIP requires 32-bit aligned addresses
+//
+//  Arguments:
+//    data_array[] : bit[15:0] samples (dynamic array)
+//    base_addr    : starting DDR address (must be 32-bit aligned)
+// -------------------------------------------------------------
+task automatic write_samples_to_ddr(
+  input bit [15:0] data_array[],
+  input longint unsigned base_addr
+);
+  int num_samples = data_array.size();
+  logic [31:0] word_data;
+  longint unsigned addr;
+  int num_words;
+
+  if (num_samples == 0) begin
+    $display("ERROR: data_array is empty (DDR write skipped)");
+    return;
+  end
+
+  // Calculate number of 32-bit words needed (round up)
+  num_words = (num_samples + 1) / 2;
+
+  // Write samples as 32-bit words (2 samples per word)
+  for (int i = 0; i < num_words; i++) begin
+    addr = base_addr + (i * 4);  // Each word is 4 bytes
+    
+    // Pack two 16-bit samples into one 32-bit word
+    if ((i * 2 + 1) < num_samples) begin
+      // Both samples available
+      word_data = {data_array[i*2 + 1], data_array[i*2]};
+    end else begin
+      // Only one sample left (odd number of samples)
+      word_data = {16'h0000, data_array[i*2]};
+    end
+    
+    tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.write_mem(
+      word_data,
+      addr,
+      4  // 4 bytes per word
+    );
+  end
+
+  $display("DDR WRITE: %0d samples (%0d bytes) written as %0d words starting at 0x%08x",
+           num_samples, num_samples * 2, num_words, base_addr);
+endtask : write_samples_to_ddr
+
+//send test data
 initial begin
   // Initialize signals
   reset = 0;
@@ -418,12 +461,23 @@ initial begin
     32'h0000_0000,      // start address  
     4                   // number of bytes
   );
-
-  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_mem(32'h0000_0000, 4, read_data);
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_mem(32'h0000_0000, 4, read_data); //read back data from DDR
   $display("DDR read = %08h", read_data);
 
+  // Generate AM data
+  generate_am_signal(
+    .sample_rate(480000.0),
+    .carrier_freq(100000.0),
+    .message_freq(1000.0),
+    .modulation_index(0.8),
+    .num_samples(num_samples),
+    .data_array(test_data)
+  );
+  
+  //write it into DDR memory
+  write_samples_to_ddr(test_data, RAM_BUFER1);
 
-
+  //DMAs loop
   for (int i = 0; i < 100; i++) begin
     dma_status_read(DMA_BASE);   
 
@@ -455,15 +509,6 @@ initial begin
   
   $display("\n=== Test: AM Modulated Signal Generation ===");
   
-  // Generate and send data
-  generate_am_signal(
-    .sample_rate(480000.0),
-    .carrier_freq(100000.0),
-    .message_freq(1000.0),
-    .modulation_index(0.6),
-    .num_samples(num_samples),
-    .data_array(test_data)
-  );
   
   
   #25000;
