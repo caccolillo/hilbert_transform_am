@@ -464,6 +464,8 @@ initial begin
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.read_mem(32'h0000_0000, 4, read_data); //read back data from DDR
   $display("DDR read = %08h", read_data);
 
+  $display("\n=== Test: AM Modulated Signal Generation ===");
+
   // Generate AM data
   generate_am_signal(
     .sample_rate(480000.0),
@@ -505,9 +507,33 @@ initial begin
     repeat(40) @(posedge clock);
   end
 
-
+  // ============================================================
+  // Save DDR memory contents to files
+  // ============================================================
+  $display("\n=== Saving Memory Contents to Files ===");
   
-  $display("\n=== Test: AM Modulated Signal Generation ===");
+  // Save RAM_BUFER1 (TX buffer - AM signal input)
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.peek_mem_to_file(
+    "buffer1_tx_data.txt",     // Output filename
+    RAM_BUFER1,                 // Start address (0x0000_0000)
+    RAM_BUFER_SIZE1             // Size in bytes (150 bytes)
+  );
+  $display("Saved RAM_BUFER1 to buffer1_tx_data.txt (Address: 0x%08x, Size: %0d bytes)", 
+           RAM_BUFER1, RAM_BUFER_SIZE1);
+  
+  // Save RAM_BUFER2 (RX buffer - received/processed data)
+  tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.peek_mem_to_file(
+    "buffer2_rx_data.txt",     // Output filename
+    RAM_BUFER2,                 // Start address (0x0000_9000)
+    RAM_BUFER_SIZE2             // Size in bytes (10 bytes)
+  );
+  $display("Saved RAM_BUFER2 to buffer2_rx_data.txt (Address: 0x%08x, Size: %0d bytes)", 
+           RAM_BUFER2, RAM_BUFER_SIZE2);
+  
+  $display("Memory dump complete\n");
+  // ============================================================
+  
+  
   
   
   
