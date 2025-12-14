@@ -55,10 +55,10 @@ module tb_receiver_with_zynq;
   parameter int S2MM_RSVD4      = 'h50;
 
 
-  parameter RAM_BUFER1 = 32'h0000_0000;
-  parameter RAM_BUFER2 = 32'h0000_9000;
-  parameter RAM_BUFER_SIZE1 = 32'h0000_0096;  // MM2S: 150 bytes 
-  parameter RAM_BUFER_SIZE2 = 32'h0000_000a;  // S2MM: 10 bytes 
+  parameter RAM_BUFFER1 = 32'h0000_0000;
+  parameter RAM_BUFFER2 = 32'h0000_9000;
+  parameter RAM_BUFFER_SIZE1 = 32'h0000_0096;  // MM2S: 150 bytes 
+  parameter RAM_BUFFER_SIZE2 = 32'h0000_000a;  // S2MM: 10 bytes 
 
   logic [31:0] my_data = 32'hDEADBEEF;
 
@@ -477,7 +477,7 @@ initial begin
   );
   
   //write it into DDR memory
-  write_samples_to_ddr(test_data, RAM_BUFER1);
+  write_samples_to_ddr(test_data, RAM_BUFFER1);
 
   //DMAs loop
   for (int i = 0; i < 100; i++) begin
@@ -487,16 +487,16 @@ initial begin
     dma_status_read(DMA_BASE);   
 
     //MM2S transfer start
-    start_mm2s_dma(RAM_BUFER1, RAM_BUFER_SIZE1);
+    start_mm2s_dma(RAM_BUFFER1, RAM_BUFFER_SIZE1);
     //polling on MM2S transfer end
     dma_mm2s_idle(DMA_BASE);    
 
 
     // Wait for some time
-    repeat(400) @(posedge clock);
+    repeat(4) @(posedge clock);
 
     //S2MM transfer start
-    start_s2mm_dma(RAM_BUFER2, RAM_BUFER_SIZE2);
+    start_s2mm_dma(RAM_BUFFER2, RAM_BUFFER_SIZE2);
     //polling on S2MM transfer end
     dma_s2mm_idle(DMA_BASE);
   
@@ -504,7 +504,7 @@ initial begin
     dma_status_read(DMA_BASE);  
   
     // Wait for some time
-    repeat(40) @(posedge clock);
+    repeat(4) @(posedge clock);
   end
 
   // ============================================================
@@ -512,23 +512,23 @@ initial begin
   // ============================================================
   $display("\n=== Saving Memory Contents to Files ===");
   
-  // Save RAM_BUFER1 (TX buffer - AM signal input)
+  // Save RAM_BUFFER1 (TX buffer - AM signal input)
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.peek_mem_to_file(
     "buffer1_tx_data.txt",     // Output filename
-    RAM_BUFER1,                 // Start address (0x0000_0000)
-    RAM_BUFER_SIZE1             // Size in bytes (150 bytes)
+    RAM_BUFFER1,                 // Start address (0x0000_0000)
+    RAM_BUFFER_SIZE1             // Size in bytes (150 bytes)
   );
-  $display("Saved RAM_BUFER1 to buffer1_tx_data.txt (Address: 0x%08x, Size: %0d bytes)", 
-           RAM_BUFER1, RAM_BUFER_SIZE1);
+  $display("Saved RAM_BUFFER1 to buffer1_tx_data.txt (Address: 0x%08x, Size: %0d bytes)", 
+           RAM_BUFFER1, RAM_BUFFER_SIZE1);
   
-  // Save RAM_BUFER2 (RX buffer - received/processed data)
+  // Save RAM_BUFFER2 (RX buffer - received/processed data)
   tb_receiver_with_zynq.DUT.mpsoc_preset_i.zynq_ultra_ps_e_0.inst.peek_mem_to_file(
     "buffer2_rx_data.txt",     // Output filename
-    RAM_BUFER2,                 // Start address (0x0000_9000)
-    RAM_BUFER_SIZE2             // Size in bytes (10 bytes)
+    RAM_BUFFER2,                 // Start address (0x0000_9000)
+    RAM_BUFFER_SIZE2             // Size in bytes (10 bytes)
   );
-  $display("Saved RAM_BUFER2 to buffer2_rx_data.txt (Address: 0x%08x, Size: %0d bytes)", 
-           RAM_BUFER2, RAM_BUFER_SIZE2);
+  $display("Saved RAM_BUFFER2 to buffer2_rx_data.txt (Address: 0x%08x, Size: %0d bytes)", 
+           RAM_BUFFER2, RAM_BUFFER_SIZE2);
   
   $display("Memory dump complete\n");
   // ============================================================
