@@ -69,6 +69,11 @@ update_compile_order -fileset sources_1
 add_files -fileset sim_1 -norecurse ./tb_design_1_wrapper_behav.wcfg
 set_property xsim.view ./tb_design_1_wrapper_behav.wcfg [get_filesets sim_1]
 
+#run bitstream generation
+update_compile_order -fileset sources_1
+launch_runs impl_1 -to_step write_bitstream -jobs 10
+wait_on_runs impl_1
+
 #package project as an IP-core
 update_compile_order -fileset sources_1
 ipx::package_project -root_dir ./ -vendor user.org -library user -taxonomy /UserIP
