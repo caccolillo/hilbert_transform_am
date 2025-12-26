@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -39,45 +38,47 @@ int main() {
     unsigned int *src = mmap(NULL, 0x1000, PROT_READ|PROT_WRITE, MAP_SHARED, fd, SRC_ADDR);
     unsigned int *dst = mmap(NULL, 0x1000, PROT_READ|PROT_WRITE, MAP_SHARED, fd, DST_ADDR);
 
-    /* Initialize Data */
-    for(int i=0; i<SRC_LEN/4; i++) src[i] = 0x78563412 + i;
-    memset(dst, 0, DST_LEN);
+    for(int j=0; j<100; j++){
+		/* Initialize Data */
+		for(int i=0; i<SRC_LEN/4; i++) src[i] = 0x78563412 + i + j;
+		memset(dst, 0, DST_LEN);
 
-    /* Reset DMA */
-    reg_write(dma, MM2S_DMACR, 0x4);
-    reg_write(dma, S2MM_DMACR, 0x4);
-    while (reg_read(dma, MM2S_DMACR) & 0x4); // Wait for reset
+		/* Reset DMA */
+		reg_write(dma, MM2S_DMACR, 0x4);
+		reg_write(dma, S2MM_DMACR, 0x4);
+		while (reg_read(dma, MM2S_DMACR) & 0x4); // Wait for reset
 
-    /* STEP 1: Configure & Start S2MM (Receiver) FIRST */
-    printf("Starting S2MM (Receiver)...\n");
-    reg_write(dma, S2MM_DA, (unsigned int)(DST_ADDR & 0xFFFFFFFF));
-    reg_write(dma, S2MM_DA_MSB, (unsigned int)(DST_ADDR >> 32)); // 40-bit support
-    reg_write(dma, S2MM_DMACR, 0x0001); // Run S2MM
-    reg_write(dma, S2MM_LENGTH, DST_LEN); // Writing length triggers transfer
+		/* STEP 1: Configure & Start S2MM (Receiver) FIRST */
+		printf("Starting S2MM (Receiver)...\n");
+		reg_write(dma, S2MM_DA, (unsigned int)(DST_ADDR & 0xFFFFFFFF));
+		reg_write(dma, S2MM_DA_MSB, (unsigned int)(DST_ADDR >> 32)); // 40-bit support
+		reg_write(dma, S2MM_DMACR, 0x0001); // Run S2MM
+		reg_write(dma, S2MM_LENGTH, DST_LEN); // Writing length triggers transfer
 
-    /* STEP 2: Configure & Start MM2S (Sender) SECOND */
-    printf("Starting MM2S (Sender)...\n");
-    reg_write(dma, MM2S_SA, (unsigned int)(SRC_ADDR & 0xFFFFFFFF));
-    reg_write(dma, MM2S_SA_MSB, (unsigned int)(SRC_ADDR >> 32));
-    reg_write(dma, MM2S_DMACR, 0x0001); // Run MM2S
-    reg_write(dma, MM2S_LENGTH, SRC_LEN);
+		/* STEP 2: Configure & Start MM2S (Sender) SECOND */
+		printf("Starting MM2S (Sender)...\n");
+		reg_write(dma, MM2S_SA, (unsigned int)(SRC_ADDR & 0xFFFFFFFF));
+		reg_write(dma, MM2S_SA_MSB, (unsigned int)(SRC_ADDR >> 32));
+		reg_write(dma, MM2S_DMACR, 0x0001); // Run MM2S
+		reg_write(dma, MM2S_LENGTH, SRC_LEN);
 
-    /* STEP 3: Poll S2MM Status for IDLE or Error */
-    printf("Waiting for completion...\n");
-    int timeout = 1000000;
-    while (timeout--) {
-        unsigned int status = reg_read(dma, S2MM_DMASR);
-        if (status & 0x2) { printf("Transfer Successful!\n"); break; } // Idle bit
-        if (status & 0x70) { printf("DMA Error: 0x%08X\n", status); break; } // Error bits
+		/* STEP 3: Poll S2MM Status for IDLE or Error */
+		printf("Waiting for completion...\n");
+		int timeout = 1000000;
+		while (timeout--) {
+			unsigned int status = reg_read(dma, S2MM_DMASR);
+			if (status & 0x2) { printf("Transfer Successful!\n"); break; } // Idle bit
+			if (status & 0x70) { printf("DMA Error: 0x%08X\n", status); break; } // Error bits
+		}
+		if (timeout <= 0) printf("Timeout: TLAST likely missing from IP core.\n");
+
+		/* Print result */
+		printf("Result (first 10 bytes): ");
+		unsigned char *ptr = (unsigned char *)dst;
+		for(int i=0; i<10; i++) printf("%02X ", ptr[i]);
+		printf("\n");
+
     }
-    if (timeout <= 0) printf("Timeout: TLAST likely missing from IP core.\n");
-
-    /* Print result */
-    printf("Result (first 10 bytes): ");
-    unsigned char *ptr = (unsigned char *)dst;
-    for(int i=0; i<10; i++) printf("%02X ", ptr[i]);
-    printf("\n");
-
     /* Unmap memory buffers and close /dev/mem file */
     munmap(dma, 0x10000);
     munmap(src, 0x1000);
