@@ -1,9 +1,6 @@
+*hdlsrc*
 *.jou
 *.log
+*prj*
 *.zip
 *.str
-*.Xil
-*project*
-*.debug
-*xgui*
-*.xml
